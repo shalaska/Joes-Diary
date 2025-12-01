@@ -1,7 +1,7 @@
 import React from 'react';
 import { Book, Plus, Trash2 } from 'lucide-react';
 
-const Sidebar = ({ groupedEntries, selectedDate, onSelectDate, onAddEntry, onDeleteDay }) => {
+const Sidebar = ({ groupedEntries, selectedDate, onSelectDate, onAddEntry, onDeleteDay, currentView, onViewTrash }) => {
     // groupedEntries is an object: { "Date String": [entry1, entry2] }
     // We want to sort dates descending
     const sortedDates = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
@@ -11,7 +11,7 @@ const Sidebar = ({ groupedEntries, selectedDate, onSelectDate, onAddEntry, onDel
             <div className="p-6 border-b border-slate-100">
                 <div className="flex items-center gap-2 text-slate-800 font-bold text-xl mb-6">
                     <Book className="text-indigo-600" />
-                    <span>My Diary</span>
+                    <span>JoesDiary</span>
                 </div>
 
                 <button
@@ -29,7 +29,7 @@ const Sidebar = ({ groupedEntries, selectedDate, onSelectDate, onAddEntry, onDel
                 </h3>
                 <div className="space-y-1 px-3">
                     {sortedDates.map((dateStr) => {
-                        const isSelected = dateStr === selectedDate;
+                        const isSelected = currentView === 'diary' && dateStr === selectedDate;
                         const entriesForDay = groupedEntries[dateStr];
                         const preview = entriesForDay[0]?.content || "No content...";
                         const count = entriesForDay.length;
@@ -72,6 +72,19 @@ const Sidebar = ({ groupedEntries, selectedDate, onSelectDate, onAddEntry, onDel
                         );
                     })}
                 </div>
+            </div>
+
+            <div className="p-4 border-t border-slate-100">
+                <button
+                    onClick={onViewTrash}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${currentView === 'trash'
+                        ? 'bg-red-50 text-red-700 font-medium'
+                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                        }`}
+                >
+                    <Trash2 size={18} />
+                    <span>Trash</span>
+                </button>
             </div>
         </div>
     );
