@@ -1,0 +1,95 @@
+import { db } from './firebase';
+import {
+    collection,
+    doc,
+    getDocs,
+    setDoc,
+    deleteDoc,
+    query,
+    orderBy,
+    writeBatch
+} from 'firebase/firestore';
+
+export const firestoreService = {
+    async getEntries(userId) {
+        const q = query(collection(db, 'users', userId, 'entries'));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    },
+
+    async getTrash(userId) {
+        const q = query(collection(db, 'users', userId, 'trash'));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    },
+
+    async saveEntry(userId, entry) {
+        // Use date string as ID for easy access/deduplication
+        const entryRef = doc(db, 'users', userId, 'entries', entry.date);
+        await setDoc(entryRef, entry);
+    },
+
+    async deleteEntry(userId, entry) {
+        const batch = writeBatch(db);
+
+        // 1. Add to trash
+        const trashRef = doc(db, 'users', userId, 'trash', entry.date);
+        batch.set(trashRef, { ...entry, deletedAt: new Date().toISOString() });
+
+        // 2. Delete from entries
+        const entryRef = doc(db, 'users', userId, 'entries', entry.date);
+        batch.delete(entryRef);
+
+        await batch.commit();
+    },
+
+    async deleteDay(userId, entries) {
+        const batch = writeBatch(db);
+
+        entries.forEach(entry => {
+            // 1. Add to trash (if content exists)
+            if (entry.content && entry.content.trim()) {
+                const trashRef = doc(db, 'users', userId, 'trash', entry.date);
+                batch.set(trashRef, { ...entry, deletedAt: new Date().toISOString() });
+            }
+
+            // 2. Delete from entries
+            const entryRef = doc(db, 'users', userId, 'entries', entry.date);
+            batch.delete(entryRef);
+        });
+
+        await batch.commit();
+    },
+
+    async migrateFromDexie(userId, localEntries, localTrash) {
+        const batch = writeBatch(db);
+        let count = 0;
+        const BATCH_LIMIT = 450; // Firestore batch limit is 500
+
+        // Migrate Entries
+        for (const entry of localEntries) {
+            if (count >= BATCH_LIMIT) {
+                await batch.commit();
+                count = 0;
+            }
+            const ref = doc(db, 'users', userId, 'entries', entry.date);
+            batch.set(ref, entry);
+            count++;
+        }
+
+        // Migrate Trash
+        for (const item of localTrash) {
+            if (count >= BATCH_LIMIT) {
+                await batch.commit();
+                count = 0;
+            }
+            const ref = doc(db, 'users', userId, 'trash', item.date);
+            batch.set(ref, item);
+            count++;
+        }
+
+        if (count > 0) {
+            await batch.commit();
+        }
+    }
+};

@@ -1,19 +1,69 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import DiaryEntry from './components/DiaryEntry';
 import Sidebar from './components/Sidebar';
+import Auth from './components/Auth';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 
-function App() {
-  const [entries, setEntries] = useState(() => {
-    const saved = localStorage.getItem('diary_entries');
-    return saved ? JSON.parse(saved) : [{ date: new Date().toISOString(), content: '' }];
-  });
+import { db as localDB } from './db'; // Rename to avoid confusion
+import { firestoreService } from './firestoreService';
 
-  const [trash, setTrash] = useState(() => {
-    const saved = localStorage.getItem('diary_trash');
-    return saved ? JSON.parse(saved) : [];
-  });
+function DiaryApp() {
+  const { currentUser, logout } = useAuth();
+  const [entries, setEntries] = useState([]);
+  const [trash, setTrash] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   const [view, setView] = useState('diary'); // 'diary' | 'trash'
+
+  // If not logged in, show Auth screen
+  if (!currentUser) {
+    return <Auth />;
+  }
+
+  // Load data from Cloud (and migrate if needed)
+  useEffect(() => {
+    const initData = async () => {
+      setIsLoading(true);
+
+      try {
+        // 1. Check for migration
+        const migrationKey = `migrated_to_cloud_${currentUser.uid}`;
+        const hasMigrated = localStorage.getItem(migrationKey);
+
+        if (!hasMigrated) {
+          console.log("Checking for local data to migrate...");
+          const localEntries = await localDB.entries.toArray();
+          const localTrash = await localDB.trash.toArray();
+
+          if (localEntries.length > 0 || localTrash.length > 0) {
+            console.log(`Migrating ${localEntries.length} entries and ${localTrash.length} trash items to cloud...`);
+            await firestoreService.migrateFromDexie(currentUser.uid, localEntries, localTrash);
+          }
+          localStorage.setItem(migrationKey, 'true');
+        }
+
+        // 2. Fetch from Firestore
+        let cloudEntries = await firestoreService.getEntries(currentUser.uid);
+        let cloudTrash = await firestoreService.getTrash(currentUser.uid);
+
+        // Default entry if absolutely nothing exists
+        if (cloudEntries.length === 0 && cloudTrash.length === 0) {
+          const newEntry = { date: new Date().toISOString(), content: '' };
+          await firestoreService.saveEntry(currentUser.uid, newEntry);
+          cloudEntries = [newEntry];
+        }
+
+        setEntries(cloudEntries);
+        setTrash(cloudTrash);
+      } catch (error) {
+        console.error("Failed to load data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initData();
+  }, [currentUser]);
 
   // Group entries by date string (e.g., "Fri Dec 01 2023")
   const groupedEntries = useMemo(() => {
@@ -31,81 +81,74 @@ function App() {
   }, [entries]);
 
   // Default to the most recent date
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const dates = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
-    return dates[0];
-  });
+  const [selectedDate, setSelectedDate] = useState(null);
+
+  // Set initial selected date once data is loaded
+  useEffect(() => {
+    if (!isLoading && !selectedDate) {
+      const dates = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
+      if (dates.length > 0) {
+        setSelectedDate(dates[0]);
+      }
+    }
+  }, [isLoading, groupedEntries, selectedDate]);
 
   useEffect(() => {
     // If selectedDate is not in groups (e.g. all deleted), reset to first available
-    if (view === 'diary') {
+    if (view === 'diary' && !isLoading) {
       if (selectedDate && !groupedEntries[selectedDate]) {
         const dates = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
-        setSelectedDate(dates[0]);
+        setSelectedDate(dates[0] || null);
       } else if (!selectedDate && Object.keys(groupedEntries).length > 0) {
         const dates = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
         setSelectedDate(dates[0]);
       }
     }
-  }, [groupedEntries, selectedDate, view]);
+  }, [groupedEntries, selectedDate, view, isLoading]);
 
-  const saveEntry = (date, content) => {
-    setEntries(prev => {
-      const newEntries = prev.map(entry =>
-        entry.date === date ? { ...entry, content } : entry
-      );
-      localStorage.setItem('diary_entries', JSON.stringify(newEntries));
-      return newEntries;
-    });
+  const refreshEntries = async () => {
+    const allEntries = await firestoreService.getEntries(currentUser.uid);
+    setEntries(allEntries);
+    const allTrash = await firestoreService.getTrash(currentUser.uid);
+    setTrash(allTrash);
   };
 
-  const addEntry = () => {
+  const saveEntry = async (date, content) => {
+    // Optimistic update
+    setEntries(prev => prev.map(e => e.date === date ? { ...e, content } : e));
+
+    // Cloud update
+    await firestoreService.saveEntry(currentUser.uid, { date, content });
+  };
+
+  const addEntry = async () => {
     const newEntry = { date: new Date().toISOString(), content: '' };
-    setEntries(prev => {
-      const newEntries = [newEntry, ...prev];
-      localStorage.setItem('diary_entries', JSON.stringify(newEntries));
-      return newEntries;
-    });
+
+    // Optimistic UI update (optional, but safer to wait for DB in this case to ensure ID consistency if we used generated IDs, but we use date as ID)
+    await firestoreService.saveEntry(currentUser.uid, newEntry);
+    await refreshEntries();
+
     // Select the day of the new entry (which is today)
     setSelectedDate(new Date(newEntry.date).toDateString());
     setView('diary');
   };
 
-  const deleteEntry = (entryDate) => {
-    setEntries(prev => {
-      const entryToDelete = prev.find(e => e.date === entryDate);
-      if (entryToDelete && entryToDelete.content.trim()) {
-        // Only add to trash if it has content
-        setTrash(prevTrash => {
-          const newTrash = [entryToDelete, ...prevTrash];
-          localStorage.setItem('diary_trash', JSON.stringify(newTrash));
-          return newTrash;
-        });
-      }
+  const deleteEntry = async (entryDate) => {
+    const entryToDelete = entries.find(e => e.date === entryDate);
 
-      const newEntries = prev.filter(entry => entry.date !== entryDate);
-      localStorage.setItem('diary_entries', JSON.stringify(newEntries));
-      return newEntries;
-    });
+    if (entryToDelete) {
+      await firestoreService.deleteEntry(currentUser.uid, entryToDelete);
+      await refreshEntries();
+    }
   };
 
-  const deleteDay = (dateStr) => {
-    setEntries(prev => {
-      const entriesToDelete = prev.filter(entry => new Date(entry.date).toDateString() === dateStr);
-      const entriesWithContent = entriesToDelete.filter(e => e.content.trim());
+  const deleteDay = async (dateStr) => {
+    const entriesToDelete = entries.filter(entry => new Date(entry.date).toDateString() === dateStr);
 
-      if (entriesWithContent.length > 0) {
-        setTrash(prevTrash => {
-          const newTrash = [...entriesWithContent, ...prevTrash];
-          localStorage.setItem('diary_trash', JSON.stringify(newTrash));
-          return newTrash;
-        });
-      }
-
-      const newEntries = prev.filter(entry => new Date(entry.date).toDateString() !== dateStr);
-      localStorage.setItem('diary_entries', JSON.stringify(newEntries));
-      return newEntries;
-    });
+    if (entriesToDelete.length > 0) {
+      await firestoreService.deleteDay(currentUser.uid, entriesToDelete);
+      await refreshEntries();
+    }
 
     // If we deleted the currently selected date, switch to another one
     if (selectedDate === dateStr) {
@@ -128,6 +171,8 @@ function App() {
         onDeleteDay={deleteDay}
         currentView={view}
         onViewTrash={() => setView('trash')}
+        onLogout={logout}
+        userEmail={currentUser.email}
       />
 
       <main className="flex-1 ml-64 p-8 sm:p-12 lg:p-16 overflow-y-auto h-screen">
@@ -186,4 +231,10 @@ function App() {
   );
 }
 
-export default App;
+export default function App() {
+  return (
+    <AuthProvider>
+      <DiaryApp />
+    </AuthProvider>
+  );
+}

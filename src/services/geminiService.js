@@ -31,7 +31,7 @@ Examples of behaviors:
 3. If the user is stuck, offer to expand or list pros/cons ("type": "expansion", with a tool).
 `;
 
-export const askGemini = async (text) => {
+export const askGemini = async (text, history = []) => {
     if (!API_KEY || API_KEY === 'YOUR_API_KEY_HERE') {
         console.warn("Gemini API Key is missing.");
         return {
@@ -41,10 +41,19 @@ export const askGemini = async (text) => {
     }
 
     try {
-        const result = await model.generateContent([
-            SYSTEM_PROMPT,
-            `User's Diary Entry:\n"${text}"`
-        ]);
+        let promptParts = [SYSTEM_PROMPT];
+
+        // Add history to context
+        if (history.length > 0) {
+            promptParts.push("Previous conversation:");
+            history.forEach(msg => {
+                promptParts.push(`${msg.role === 'user' ? 'User' : 'You'}: ${msg.content}`);
+            });
+        }
+
+        promptParts.push(`User's current input:\n"${text}"`);
+
+        const result = await model.generateContent(promptParts);
 
         const response = await result.response;
         const textResponse = response.text();
@@ -59,5 +68,31 @@ export const askGemini = async (text) => {
             type: 'question',
             content: "I'm having trouble thinking right now. Maybe try again in a moment?",
         };
+    }
+};
+
+export const editSelection = async (selection, instruction) => {
+    if (!API_KEY || API_KEY === 'YOUR_API_KEY_HERE') {
+        return { content: selection }; // Fail safe
+    }
+
+    const EDIT_PROMPT = `
+    You are a helpful writing assistant.
+    The user has selected the following text: "${selection}"
+    
+    The user wants you to: "${instruction}"
+    
+    Return ONLY the new text that should replace the selection. 
+    Do not add any explanations, quotes, or markdown unless requested.
+    If the user asks a question instead of an edit, answer the question but prefix it with "[ANSWER]: ".
+    `;
+
+    try {
+        const result = await model.generateContent(EDIT_PROMPT);
+        const response = await result.response;
+        return response.text().trim();
+    } catch (error) {
+        console.error("Error calling Gemini API for edit:", error);
+        return selection;
     }
 };

@@ -1,7 +1,7 @@
 import React from 'react';
-import { Book, Plus, Trash2 } from 'lucide-react';
+import { Book, Plus, Trash2, LogOut, User } from 'lucide-react';
 
-const Sidebar = ({ groupedEntries, selectedDate, onSelectDate, onAddEntry, onDeleteDay, currentView, onViewTrash }) => {
+const Sidebar = ({ groupedEntries, selectedDate, onSelectDate, onAddEntry, onDeleteDay, currentView, onViewTrash, onLogout, userEmail }) => {
     // groupedEntries is an object: { "Date String": [entry1, entry2] }
     // We want to sort dates descending
     const sortedDates = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
@@ -74,17 +74,31 @@ const Sidebar = ({ groupedEntries, selectedDate, onSelectDate, onAddEntry, onDel
                 </div>
             </div>
 
-            <div className="p-4 border-t border-slate-100">
+            <div className="p-4 border-t border-slate-100 space-y-2">
                 <button
                     onClick={onViewTrash}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${currentView === 'trash'
-                        ? 'bg-red-50 text-red-700 font-medium'
-                        : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                            ? 'bg-red-50 text-red-700 font-medium'
+                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                         }`}
                 >
                     <Trash2 size={18} />
                     <span>Trash</span>
                 </button>
+
+                <div className="pt-2 border-t border-slate-100 mt-2">
+                    <div className="flex items-center gap-3 px-3 py-2 text-sm text-slate-500 mb-1">
+                        <User size={16} />
+                        <span className="truncate max-w-[140px]" title={userEmail}>{userEmail}</span>
+                    </div>
+                    <button
+                        onClick={onLogout}
+                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                    >
+                        <LogOut size={18} />
+                        <span>Log Out</span>
+                    </button>
+                </div>
             </div>
         </div>
     );
