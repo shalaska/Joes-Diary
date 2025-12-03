@@ -1,106 +1,140 @@
 import React from 'react';
-import { Book, Plus, Trash2, LogOut, User } from 'lucide-react';
+import { Book, Plus, Trash2, LogOut, User, X } from 'lucide-react';
 
-const Sidebar = ({ groupedEntries, selectedDate, onSelectDate, onAddEntry, onDeleteDay, currentView, onViewTrash, onLogout, userEmail }) => {
+const Sidebar = ({ groupedEntries, selectedDate, onSelectDate, onAddEntry, onDeleteDay, currentView, onViewTrash, onLogout, userEmail, isOpen, onClose }) => {
     // groupedEntries is an object: { "Date String": [entry1, entry2] }
     // We want to sort dates descending
     const sortedDates = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
 
     return (
-        <div className="w-64 bg-white border-r border-slate-200 h-screen flex flex-col fixed left-0 top-0 z-10">
-            <div className="p-6 border-b border-slate-100">
-                <div className="flex items-center gap-2 text-slate-800 font-bold text-xl mb-6">
-                    <Book className="text-indigo-600" />
-                    <span>JoesDiary</span>
-                </div>
+        <>
+            {/* Mobile Backdrop */}
+            {isOpen && (
+                <div
+                    className="fixed inset-0 bg-black/50 z-30 md:hidden transition-opacity"
+                    onClick={onClose}
+                />
+            )}
 
-                <button
-                    onClick={onAddEntry}
-                    className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 text-sm font-medium"
-                >
-                    <Plus size={18} />
-                    <span>New Entry</span>
-                </button>
-            </div>
-
-            <div className="flex-1 overflow-y-auto py-4">
-                <h3 className="px-6 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                    History
-                </h3>
-                <div className="space-y-1 px-3">
-                    {sortedDates.map((dateStr) => {
-                        const isSelected = currentView === 'diary' && dateStr === selectedDate;
-                        const entriesForDay = groupedEntries[dateStr];
-                        const preview = entriesForDay[0]?.content || "No content...";
-                        const count = entriesForDay.length;
-
-                        return (
-                            <div
-                                key={dateStr}
-                                onClick={() => onSelectDate(dateStr)}
-                                className={`group w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors flex flex-col gap-0.5 cursor-pointer relative ${isSelected
-                                    ? 'bg-indigo-50 text-indigo-900'
-                                    : 'text-slate-600 hover:bg-slate-50'
-                                    }`}
-                            >
-                                <div className="flex justify-between items-center w-full">
-                                    <span className={`font-medium ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
-                                        {new Date(dateStr).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                                    </span>
-                                    <div className="flex items-center gap-2">
-                                        {count > 1 && (
-                                            <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">
-                                                {count}
-                                            </span>
-                                        )}
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                onDeleteDay(dateStr);
-                                            }}
-                                            className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-all"
-                                            title="Delete all entries for this day"
-                                        >
-                                            <Trash2 size={14} />
-                                        </button>
-                                    </div>
-                                </div>
-                                <span className="text-xs opacity-70 truncate w-full pr-6">
-                                    {preview}
-                                </span>
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
-
-            <div className="p-4 border-t border-slate-100 space-y-2">
-                <button
-                    onClick={onViewTrash}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${currentView === 'trash'
-                            ? 'bg-red-50 text-red-700 font-medium'
-                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                        }`}
-                >
-                    <Trash2 size={18} />
-                    <span>Trash</span>
-                </button>
-
-                <div className="pt-2 border-t border-slate-100 mt-2">
-                    <div className="flex items-center gap-3 px-3 py-2 text-sm text-slate-500 mb-1">
-                        <User size={16} />
-                        <span className="truncate max-w-[140px]" title={userEmail}>{userEmail}</span>
+            {/* Sidebar Container */}
+            <div className={`
+                w-64 bg-white border-r border-slate-200 h-screen flex flex-col fixed left-0 top-0 z-40
+                transition-transform duration-300 ease-in-out
+                ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+                md:translate-x-0
+            `}>
+                <div className="p-6 border-b border-slate-100">
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-2 text-slate-800 font-bold text-xl">
+                            <Book className="text-indigo-600" />
+                            <span>JoesDiary</span>
+                        </div>
+                        {/* Mobile Close Button */}
+                        <button
+                            onClick={onClose}
+                            className="md:hidden p-1 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100"
+                        >
+                            <X size={20} />
+                        </button>
                     </div>
+
                     <button
-                        onClick={onLogout}
-                        className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                        onClick={() => {
+                            onAddEntry();
+                            onClose?.(); // Close sidebar on mobile when action taken
+                        }}
+                        className="w-full flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2.5 rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 text-sm font-medium"
                     >
-                        <LogOut size={18} />
-                        <span>Log Out</span>
+                        <Plus size={18} />
+                        <span>New Entry</span>
                     </button>
                 </div>
+
+                <div className="flex-1 overflow-y-auto py-4">
+                    <h3 className="px-6 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
+                        History
+                    </h3>
+                    <div className="space-y-1 px-3">
+                        {sortedDates.map((dateStr) => {
+                            const isSelected = currentView === 'diary' && dateStr === selectedDate;
+                            const entriesForDay = groupedEntries[dateStr];
+                            const preview = entriesForDay[0]?.content || "No content...";
+                            const count = entriesForDay.length;
+
+                            return (
+                                <div
+                                    key={dateStr}
+                                    onClick={() => {
+                                        onSelectDate(dateStr);
+                                        onClose?.();
+                                    }}
+                                    className={`group w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors flex flex-col gap-0.5 cursor-pointer relative ${isSelected
+                                        ? 'bg-indigo-50 text-indigo-900'
+                                        : 'text-slate-600 hover:bg-slate-50'
+                                        }`}
+                                >
+                                    <div className="flex justify-between items-center w-full">
+                                        <span className={`font-medium ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>
+                                            {new Date(dateStr).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                                        </span>
+                                        <div className="flex items-center gap-2">
+                                            {count > 1 && (
+                                                <span className="text-[10px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded-full">
+                                                    {count}
+                                                </span>
+                                            )}
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    onDeleteDay(dateStr);
+                                                }}
+                                                className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded opacity-0 group-hover:opacity-100 transition-all"
+                                                title="Delete all entries for this day"
+                                            >
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <span className="text-xs opacity-70 truncate w-full pr-6">
+                                        {preview}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div className="p-4 border-t border-slate-100 space-y-2">
+                    <button
+                        onClick={() => {
+                            onViewTrash();
+                            onClose?.();
+                        }}
+                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${currentView === 'trash'
+                            ? 'bg-red-50 text-red-700 font-medium'
+                            : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                            }`}
+                    >
+                        <Trash2 size={18} />
+                        <span>Trash</span>
+                    </button>
+
+                    <div className="pt-2 border-t border-slate-100 mt-2">
+                        <div className="flex items-center gap-3 px-3 py-2 text-sm text-slate-500 mb-1">
+                            <User size={16} />
+                            <span className="truncate max-w-[140px]" title={userEmail}>{userEmail}</span>
+                        </div>
+                        <button
+                            onClick={onLogout}
+                            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                        >
+                            <LogOut size={18} />
+                            <span>Log Out</span>
+                        </button>
+                    </div>
+                </div>
             </div>
-        </div>
+        </>
     );
 };
 

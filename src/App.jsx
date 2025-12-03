@@ -3,6 +3,7 @@ import DiaryEntry from './components/DiaryEntry';
 import Sidebar from './components/Sidebar';
 import Auth from './components/Auth';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { Menu, Book } from 'lucide-react'; // Import Menu icon
 
 import { db as localDB } from './db'; // Rename to avoid confusion
 import { firestoreService } from './firestoreService';
@@ -12,6 +13,7 @@ function DiaryApp() {
   const [entries, setEntries] = useState([]);
   const [trash, setTrash] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Mobile menu state
 
   const [view, setView] = useState('diary'); // 'diary' | 'trash'
 
@@ -159,7 +161,21 @@ function DiaryApp() {
   const currentDayEntries = groupedEntries[selectedDate] || [];
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+      {/* Mobile Header */}
+      <div className="md:hidden bg-white border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-20">
+        <div className="flex items-center gap-2 text-slate-800 font-bold text-lg">
+          <Book className="text-indigo-600" size={24} />
+          <span>JoesDiary</span>
+        </div>
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+        >
+          <Menu size={24} />
+        </button>
+      </div>
+
       <Sidebar
         groupedEntries={groupedEntries}
         selectedDate={selectedDate}
@@ -173,13 +189,15 @@ function DiaryApp() {
         onViewTrash={() => setView('trash')}
         onLogout={logout}
         userEmail={currentUser.email}
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
       />
 
-      <main className="flex-1 ml-64 p-8 sm:p-12 lg:p-16 overflow-y-auto h-screen">
+      <main className="flex-1 md:ml-64 p-4 md:p-12 lg:p-16 overflow-y-auto h-[calc(100vh-65px)] md:h-screen">
         <div className="max-w-3xl mx-auto">
           {view === 'trash' ? (
             <div>
-              <h1 className="text-3xl font-bold text-slate-900 mb-8 border-b border-slate-200 pb-4 flex items-center gap-3">
+              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8 border-b border-slate-200 pb-4 flex items-center gap-3">
                 <span className="text-slate-400">Trash</span>
                 <span className="text-sm font-normal text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{trash.length} items</span>
               </h1>
@@ -203,7 +221,7 @@ function DiaryApp() {
           ) : (
             currentDayEntries.length > 0 ? (
               <div>
-                <h1 className="text-3xl font-bold text-slate-900 mb-8 border-b border-slate-200 pb-4">
+                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8 border-b border-slate-200 pb-4">
                   {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
                 </h1>
                 <div className="space-y-8">
