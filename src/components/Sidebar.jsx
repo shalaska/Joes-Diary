@@ -237,22 +237,28 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
                                 items={sortedDates}
                                 strategy={verticalListSortingStrategy}
                             >
-                                {sortedDates.map((dateStr) => (
-                                    <SortableItem
-                                        key={dateStr}
-                                        id={dateStr}
-                                        dateStr={dateStr}
-                                        dayMetadata={dayMetadata[dateStr]}
-                                        entriesForDay={groupedEntries[dateStr]}
-                                        isSelected={currentView === 'diary' && dateStr === selectedDate}
-                                        onSelect={(date) => {
-                                            onSelectDate(date);
-                                            onClose?.();
-                                        }}
-                                        onDelete={onDeleteDay}
-                                        onRename={handleRename}
-                                    />
-                                ))}
+                                {sortedDates.map((dateStr) => {
+                                    const entriesForDay = groupedEntries[dateStr];
+                                    // Guard against stale state where dateStr is in sortedDates but data is gone
+                                    if (!entriesForDay) return null;
+
+                                    return (
+                                        <SortableItem
+                                            key={dateStr}
+                                            id={dateStr}
+                                            dateStr={dateStr}
+                                            dayMetadata={dayMetadata[dateStr]}
+                                            entriesForDay={entriesForDay}
+                                            isSelected={currentView === 'diary' && dateStr === selectedDate}
+                                            onSelect={(date) => {
+                                                onSelectDate(date);
+                                                onClose?.();
+                                            }}
+                                            onDelete={onDeleteDay}
+                                            onRename={handleRename}
+                                        />
+                                    );
+                                })}
                             </SortableContext>
                         </DndContext>
                     </div>
