@@ -91,5 +91,17 @@ export const firestoreService = {
         if (count > 0) {
             await batch.commit();
         }
+    },
+
+    async getDayMetadata(userId) {
+        const q = query(collection(db, 'users', userId, 'dayMetadata'));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    },
+
+    async saveDayMetadata(userId, dateStr, metadata) {
+        const ref = doc(db, 'users', userId, 'dayMetadata', dateStr);
+        // Merge true to allow partial updates if we add more fields later
+        await setDoc(ref, metadata, { merge: true });
     }
 };

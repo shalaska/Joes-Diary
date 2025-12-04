@@ -14,6 +14,7 @@ function DiaryApp() {
   const { currentUser, logout } = useAuth();
   const [entries, setEntries] = useState([]);
   const [trash, setTrash] = useState([]);
+  const [dayMetadata, setDayMetadata] = useState({}); // Store metadata by date string
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Mobile menu state
 
@@ -53,6 +54,13 @@ function DiaryApp() {
         // 2. Fetch from Firestore
         let cloudEntries = await firestoreService.getEntries(currentUser.uid);
         let cloudTrash = await firestoreService.getTrash(currentUser.uid);
+        let cloudMetadata = await firestoreService.getDayMetadata(currentUser.uid);
+
+        // Convert metadata array to object for easier lookup
+        const metadataMap = {};
+        cloudMetadata.forEach(m => {
+          metadataMap[m.id] = m;
+        });
 
         // Default entry if absolutely nothing exists
         if (cloudEntries.length === 0 && cloudTrash.length === 0) {
@@ -63,6 +71,7 @@ function DiaryApp() {
 
         setEntries(cloudEntries);
         setTrash(cloudTrash);
+        setDayMetadata(metadataMap);
       } catch (error) {
         console.error("Failed to load data:", error);
       } finally {
@@ -73,13 +82,14 @@ function DiaryApp() {
     initData();
   }, [currentUser]);
 
-  // Group entries by date string (e.g., "Fri Dec 01 2023")
+  // Group entries by groupId (or fallback to date string for legacy)
   const groupedEntries = useMemo(() => {
     const groups = {};
     entries.forEach(entry => {
-      const dateStr = new Date(entry.date).toDateString();
-      if (!groups[dateStr]) groups[dateStr] = [];
-      groups[dateStr].push(entry);
+      // Use groupId if available, otherwise fallback to date string (legacy behavior)
+      const groupId = entry.groupId || new Date(entry.date).toDateString();
+      if (!groups[groupId]) groups[groupId] = [];
+      groups[groupId].push(entry);
     });
     // Sort entries within each group by time descending
     Object.keys(groups).forEach(key => {
@@ -88,28 +98,43 @@ function DiaryApp() {
     return groups;
   }, [entries]);
 
-  // Default to the most recent date
+  // Default to the most recent group
+  // selectedDate is now acting as "selectedGroupId"
   const [selectedDate, setSelectedDate] = useState(null);
 
   // Set initial selected date once data is loaded
   useEffect(() => {
     if (!isLoading && !selectedDate) {
-      const dates = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
-      if (dates.length > 0) {
-        setSelectedDate(dates[0]);
+      // Sort groups based on metadata (if available) or default to date descending (using the group ID if it's a date, or the latest entry in the group)
+      const groupIds = Object.keys(groupedEntries).sort((a, b) => {
+        const metaA = dayMetadata[a];
+        const metaB = dayMetadata[b];
+
+        if (metaA?.sortIndex !== undefined && metaB?.sortIndex !== undefined) {
+          return metaA.sortIndex - metaB.sortIndex;
+        }
+
+        // Fallback sort: try to parse as date (legacy) or use creation time of newest entry
+        // For new groups, the ID is an ISO string, so it sorts naturally as a date
+        // For legacy groups, it's "Fri Dec 01 2023", which also parses
+        return new Date(b) - new Date(a);
+      });
+
+      if (groupIds.length > 0) {
+        setSelectedDate(groupIds[0]);
       }
     }
-  }, [isLoading, groupedEntries, selectedDate]);
+  }, [isLoading, groupedEntries, selectedDate, dayMetadata]);
 
   useEffect(() => {
     // If selectedDate is not in groups (e.g. all deleted), reset to first available
     if (view === 'diary' && !isLoading) {
       if (selectedDate && !groupedEntries[selectedDate]) {
-        const dates = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
-        setSelectedDate(dates[0] || null);
+        const groupIds = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
+        setSelectedDate(groupIds[0] || null);
       } else if (!selectedDate && Object.keys(groupedEntries).length > 0) {
-        const dates = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
-        setSelectedDate(dates[0]);
+        const groupIds = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
+        setSelectedDate(groupIds[0]);
       }
     }
   }, [groupedEntries, selectedDate, view, isLoading]);
@@ -121,24 +146,51 @@ function DiaryApp() {
     setTrash(allTrash);
   };
 
-  const saveEntry = async (date, content) => {
+  const handleUpdateDayMetadata = async (groupId, newMetadata) => {
     // Optimistic update
-    setEntries(prev => prev.map(e => e.date === date ? { ...e, content } : e));
+    setDayMetadata(prev => ({
+      ...prev,
+      [groupId]: { ...prev[groupId], ...newMetadata }
+    }));
 
     // Cloud update
-    await firestoreService.saveEntry(currentUser.uid, { date, content });
+    await firestoreService.saveDayMetadata(currentUser.uid, groupId, newMetadata);
   };
 
-  const addEntry = async () => {
-    const newEntry = { date: new Date().toISOString(), content: '' };
+  const saveEntry = async (date, content, groupId) => {
+    // Optimistic update
+    setEntries(prev => prev.map(e => e.date === date ? { ...e, content, groupId } : e));
 
-    // Optimistic UI update (optional, but safer to wait for DB in this case to ensure ID consistency if we used generated IDs, but we use date as ID)
+    // Cloud update
+    await firestoreService.saveEntry(currentUser.uid, { date, content, groupId });
+  };
+
+  // Left Sidebar Button: Creates a NEW Group
+  const createNewGroup = async () => {
+    const newDate = new Date().toISOString();
+    // Use the ISO string as the unique Group ID for this new session
+    const newGroupId = newDate;
+    const newEntry = { date: newDate, content: '', groupId: newGroupId };
+
     await firestoreService.saveEntry(currentUser.uid, newEntry);
     await refreshEntries();
 
-    // Select the day of the new entry (which is today)
-    setSelectedDate(new Date(newEntry.date).toDateString());
+    setSelectedDate(newGroupId);
     setView('diary');
+  };
+
+  // Right Header Button: Adds to CURRENT Group
+  const addToCurrentGroup = async () => {
+    if (!selectedDate) return createNewGroup(); // Fallback if nothing selected
+
+    const newEntry = {
+      date: new Date().toISOString(),
+      content: '',
+      groupId: selectedDate // selectedDate is the current groupId
+    };
+
+    await firestoreService.saveEntry(currentUser.uid, newEntry);
+    await refreshEntries();
   };
 
   const deleteEntry = async (entryDate) => {
@@ -232,13 +284,15 @@ function DiaryApp() {
 
       <Sidebar
         groupedEntries={groupedEntries}
+        dayMetadata={dayMetadata} // Pass metadata
+        onUpdateDayMetadata={handleUpdateDayMetadata} // Pass update handler
         selectedDate={selectedDate}
         onSelectDate={(date) => {
           setSelectedDate(date);
           setView('diary');
           setGlobalGemini({ loading: false, suggestion: null }); // Reset global gemini on date change
         }}
-        onAddEntry={addEntry}
+        onAddEntry={createNewGroup}
         onDeleteDay={deleteDay}
         currentView={view}
         onViewTrash={() => setView('trash')}
@@ -278,14 +332,15 @@ function DiaryApp() {
               <div className="pb-20"> {/* Add padding bottom for the panel */}
                 <div className="flex items-center justify-between mb-6 md:mb-8 border-b border-slate-200 pb-4">
                   <h1 className="text-2xl md:text-3xl font-bold text-slate-900">
-                    {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                    {/* Display Custom Title if available, else Date */}
+                    {dayMetadata[selectedDate]?.customTitle || new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
                   </h1>
                   <button
-                    onClick={addEntry}
+                    onClick={addToCurrentGroup}
                     className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 text-sm font-medium"
                   >
                     <Plus size={18} />
-                    <span className="hidden sm:inline">New Entry</span>
+                    <span className="hidden sm:inline">New Note</span>
                   </button>
                 </div>
                 <div className="space-y-8">
@@ -294,7 +349,7 @@ function DiaryApp() {
                       key={entry.date}
                       date={entry.date}
                       initialContent={entry.content}
-                      onSave={saveEntry}
+                      onSave={(date, content) => saveEntry(date, content, entry.groupId)}
                       onDelete={deleteEntry}
                       showDateHeader={false} // We show the main date at the top
                     />
