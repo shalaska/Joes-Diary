@@ -202,16 +202,19 @@ function DiaryApp() {
     }
   };
 
-  const deleteDay = async (dateStr) => {
-    const entriesToDelete = entries.filter(entry => new Date(entry.date).toDateString() === dateStr);
+  const deleteGroup = async (groupId) => {
+    const entriesToDelete = entries.filter(entry => {
+      const entryGroupId = entry.groupId || new Date(entry.date).toDateString();
+      return entryGroupId === groupId;
+    });
 
     if (entriesToDelete.length > 0) {
       await firestoreService.deleteDay(currentUser.uid, entriesToDelete);
       await refreshEntries();
     }
 
-    // If we deleted the currently selected date, switch to another one
-    if (selectedDate === dateStr) {
+    // If we deleted the currently selected group, switch to another one
+    if (selectedDate === groupId) {
       setSelectedDate(null); // Effect will handle picking a new default
     }
   };
@@ -293,7 +296,7 @@ function DiaryApp() {
           setGlobalGemini({ loading: false, suggestion: null }); // Reset global gemini on date change
         }}
         onAddEntry={createNewGroup}
-        onDeleteDay={deleteDay}
+        onDeleteDay={deleteGroup}
         currentView={view}
         onViewTrash={() => setView('trash')}
         onLogout={logout}
