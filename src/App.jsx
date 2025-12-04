@@ -273,6 +273,78 @@ function DiaryApp() {
     }
   };
 
+  const handleSaveGlobalAnalysis = async () => {
+    if (!globalGemini.suggestion) return;
+
+    let textToSave = '';
+
+    // If we have history, format it as a conversation
+    if (globalChatHistory.length > 0) {
+      // We want to capture the full context of the analysis
+      // The first message in history is the prompt "Here are my diary entries..." which might be too long/repetitive to save?
+      // Actually, the user probably just wants the *Analysis* (the response).
+      // But if they had a back-and-forth, they might want that too.
+
+      // Let's format it similarly to the DiaryEntry "Add to Note"
+      // But since this is a NEW note, we might want a header.
+
+      textToSave = `# Gemini Analysis\n\n`;
+
+      // Filter out the initial huge prompt if it's just raw data dump? 
+      // The initial prompt is: "Here are my diary entries..."
+      // Maybe we just save the Model's response if it's the first turn?
+
+      globalChatHistory.forEach(msg => {
+        // Skip the very first user message if it starts with "Here are my diary entries" to avoid clutter
+        if (msg.role === 'user' && msg.content.startsWith("Here are my diary entries")) {
+          return;
+        }
+
+        if (msg.role === 'user') {
+          textToSave += `> **User:** ${msg.content}\n\n`;
+        } else {
+          textToSave += `> **Gemini:** ${msg.content}\n\n`;
+        }
+      });
+
+      // Add the current suggestion if it's not in history yet (it usually isn't added to history until next reply)
+      // Wait, handleGlobalReply adds to history. handleAskPage adds to history.
+      // Let's check handleAskPage:
+      // setGlobalChatHistory([ { role: 'user', content: prompt }, { role: 'model', content: suggestion.content } ]);
+      // So the current suggestion IS in history?
+      // handleAskPage sets history WITH the suggestion.
+      // handleGlobalReply sets history THEN asks, then appends result.
+      // So `globalChatHistory` should be up to date? 
+      // Actually handleGlobalReply appends the *new* model response to history at the end.
+
+      // But `globalGemini.suggestion` is the *latest* response.
+      // If we just use `globalChatHistory`, we should be good.
+
+      // However, `handleAskPage` sets history:
+      // setGlobalChatHistory([ { role: 'user', content: prompt }, { role: 'model', content: suggestion.content } ]);
+
+      // So yes, history contains everything.
+    } else {
+      // Should not happen if handleAskPage sets history, but fallback:
+      textToSave = `> **Gemini:** ${globalGemini.suggestion.content}`;
+    }
+
+    // Create a new entry with this content
+    const newEntry = {
+      date: new Date().toISOString(),
+      content: textToSave,
+      groupId: selectedDate, // Add to current group
+      type: 'analysis' // Mark as analysis to pin to bottom
+    };
+
+    await firestoreService.saveEntry(currentUser.uid, newEntry);
+    await refreshEntries();
+
+    // Close the panel? Or just show success?
+    // Let's close it to indicate completion
+    setGlobalGemini({ loading: false, suggestion: null });
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* Mobile Header */}
@@ -385,16 +457,33 @@ function DiaryApp() {
                   </button>
                 </div>
                 <div className="space-y-8">
-                  {currentDayEntries.map((entry, index) => (
-                    <DiaryEntry
-                      key={entry.date}
-                      date={entry.date}
-                      initialContent={entry.content}
-                      onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
-                      onDelete={deleteEntry}
-                      showDateHeader={false} // We show the main date at the top
-                    />
-                  ))}
+                  {currentDayEntries
+                    .filter(e => e.type !== 'analysis')
+                    .map((entry, index) => (
+                      <DiaryEntry
+                        key={entry.date}
+                        date={entry.date}
+                        initialContent={entry.content}
+                        onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
+                        onDelete={deleteEntry}
+                        showDateHeader={false} // We show the main date at the top
+                      />
+                    ))}
+
+                  {/* Render Analysis Entries at the bottom */}
+                  {currentDayEntries
+                    .filter(e => e.type === 'analysis')
+                    .map((entry, index) => (
+                      <DiaryEntry
+                        key={entry.date}
+                        date={entry.date}
+                        initialContent={entry.content}
+                        onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
+                        onDelete={deleteEntry}
+                        showDateHeader={false}
+                        isAnalysis={true} // Optional: Pass a prop if we want special styling
+                      />
+                    ))}
                 </div>
 
                 {/* Page Level Gemini Action */}
@@ -413,8 +502,8 @@ function DiaryApp() {
                       suggestion={globalGemini.suggestion}
                       onClose={() => setGlobalGemini({ loading: false, suggestion: null })}
                       onReply={handleGlobalReply}
-                    // No onApplyTool needed for global chat usually, unless we want to append to a specific entry? 
-                    // For now, let's omit it or handle it if needed.
+                      onAddToNote={handleSaveGlobalAnalysis}
+                      saveLabel="Save as Note"
                     />
                   )}
                 </div>

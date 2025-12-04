@@ -1,7 +1,7 @@
 import React from 'react';
 import { Sparkles, ArrowRight, PlusCircle, MessageSquarePlus } from 'lucide-react';
 
-const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onAddToNote }) => {
+const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onAddToNote, saveLabel = "Add to Note" }) => {
     const [replyText, setReplyText] = React.useState('');
 
     if (!suggestion && !isLoading) return null;
@@ -49,7 +49,7 @@ const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onA
                                         title="Add conversation to note"
                                     >
                                         <MessageSquarePlus size={16} />
-                                        Add to Note
+                                        {saveLabel}
                                     </button>
                                 )}
                             </div>
