@@ -3,6 +3,7 @@ import { Save, Sparkles, Trash2 } from 'lucide-react';
 import { askGemini, editSelection } from '../services/geminiService';
 import GeminiPanel from './GeminiPanel';
 import FloatingGeminiMenu from './FloatingGeminiMenu';
+import SimpleMarkdownRenderer from './SimpleMarkdownRenderer';
 
 const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true }) => {
     const [content, setContent] = useState(initialContent || '');
@@ -10,6 +11,10 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
     const [geminiState, setGeminiState] = useState({ loading: false, suggestion: null });
     const [chatHistory, setChatHistory] = useState([]);
     const textareaRef = useRef(null);
+
+    // View/Edit Mode State
+    // Default to edit mode if content is empty (new entry), otherwise view mode
+    const [isEditing, setIsEditing] = useState(!initialContent);
 
     const [menuPosition, setMenuPosition] = useState(null);
     const [selectedText, setSelectedText] = useState('');
@@ -20,11 +25,13 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
 
     // Auto-resize textarea
     useEffect(() => {
-        if (textareaRef.current) {
+        if (isEditing && textareaRef.current) {
             textareaRef.current.style.height = 'auto';
             textareaRef.current.style.height = textareaRef.current.scrollHeight + 'px';
+            // Auto-focus when switching to edit mode
+            textareaRef.current.focus();
         }
-    }, [content]);
+    }, [content, isEditing]);
 
     // Debounced auto-save
     useEffect(() => {
@@ -76,23 +83,18 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
         const handleGlobalMouseUp = (e) => {
             // Check if we are interacting with the menu itself, if so don't clear selection
             if (e.target.closest('.floating-gemini-menu')) return;
-            checkSelection(e.clientY);
-        };
-
-        const handleKeyUp = (e) => {
-            if (e.key === 'Shift' || e.key.startsWith('Arrow')) {
-                checkSelection(null);
+            // Only check selection if we are in edit mode
+            if (isEditing) {
+                checkSelection(e.clientY);
             }
         };
 
         document.addEventListener('mouseup', handleGlobalMouseUp);
-        // We attach keyup to the textarea specifically via prop, but global is okay too if we check focus.
-        // Actually, let's keep keyup on the textarea element for better scoping.
 
         return () => {
             document.removeEventListener('mouseup', handleGlobalMouseUp);
         };
-    }, []);
+    }, [isEditing]);
 
     const handleAskGemini = async () => {
         setGeminiState({ loading: true, suggestion: null });
@@ -134,18 +136,19 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
             const result = await editSelection(selectedText, instruction);
 
             if (result.startsWith("[ANSWER]:")) {
-                // If it's an answer, show it in the main Gemini panel or alert? 
-                // Let's use the GeminiPanel for consistency if possible, or just replace if the user asked to "replace"
-                // But the prompt says "answer the question". 
-                // Let's just alert for now or maybe open the GeminiPanel with the answer?
-                // Actually, opening the GeminiPanel is better.
+                const answerContent = result.replace("[ANSWER]: ", "");
                 setGeminiState({
                     loading: false,
                     suggestion: {
                         type: 'suggestion',
-                        content: result.replace("[ANSWER]: ", "")
+                        content: answerContent
                     }
                 });
+                // Set history so "Add to Note" works correctly for selection Q&A
+                setChatHistory([
+                    { role: 'user', content: `"${selectedText}" - ${instruction}` },
+                    { role: 'model', content: answerContent }
+                ]);
                 setMenuPosition(null); // Close floating menu
             } else {
                 // It's an edit, replace the text
@@ -169,8 +172,51 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
         }
     };
 
+    const handleAddToNote = () => {
+        if (!geminiState.suggestion) return;
+
+        let textToAppend = '';
+
+        // If we have history (meaning it's a conversation or a specific Q&A)
+        if (chatHistory.length > 0) {
+            // Get the last user message and the last model message
+            const lastUserMsg = [...chatHistory].reverse().find(m => m.role === 'user');
+            const lastModelMsg = geminiState.suggestion.content; // Current suggestion is the latest model msg
+
+            if (lastUserMsg) {
+                textToAppend = `\n\n> **User:** ${lastUserMsg.content}\n> **Gemini:** ${lastModelMsg}`;
+            } else {
+                // Just model response (e.g. initial "Ask Gemini" about the whole note)
+                textToAppend = `\n\n> **Gemini:** ${lastModelMsg}`;
+            }
+        } else {
+            // Fallback
+            textToAppend = `\n\n> **Gemini:** ${geminiState.suggestion.content}`;
+        }
+
+        const newContent = content + textToAppend;
+        setContent(newContent);
+        setGeminiState({ loading: false, suggestion: null });
+    };
+
+    const handleBlur = (e) => {
+        // Only switch to view mode if we are not clicking inside the component (e.g. on the Gemini panel or menu)
+        // And if we have some content (don't close empty new entries immediately if user clicks away, maybe? 
+        // Actually, standard behavior is fine. If empty, it stays empty.)
+
+        // Check if relatedTarget (where focus went) is inside our container
+        if (containerRef.current && containerRef.current.contains(e.relatedTarget)) {
+            return;
+        }
+
+        setIsEditing(false);
+    };
+
     return (
-        <div ref={containerRef} className="w-full max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-8 mb-6 transition-all hover:shadow-md group relative">
+        <div
+            ref={containerRef}
+            className={`w-full max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-8 mb-6 transition-all hover:shadow-md group relative ${isEditing ? 'ring-2 ring-indigo-50 border-indigo-100' : ''}`}
+        >
             <div className="flex justify-between items-center mb-4">
                 {showDateHeader ? (
                     <h2 className="text-2xl font-semibold text-slate-800">
@@ -209,18 +255,33 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
                 </div>
             </div>
 
-            <textarea
-                ref={textareaRef}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                onKeyUp={(e) => {
-                    if (e.shiftKey && (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End')) {
-                        checkSelection(null);
-                    }
-                }}
-                placeholder="How was your day?"
-                className="w-full resize-none outline-none text-lg text-slate-600 placeholder:text-slate-300 min-h-[150px] bg-transparent leading-relaxed"
-            />
+            {isEditing ? (
+                <textarea
+                    ref={textareaRef}
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    onBlur={handleBlur}
+                    onKeyUp={(e) => {
+                        if (e.shiftKey && (e.key.startsWith('Arrow') || e.key === 'Home' || e.key === 'End')) {
+                            checkSelection(null);
+                        }
+                    }}
+                    placeholder="How was your day?"
+                    className="w-full resize-none outline-none text-lg text-slate-600 placeholder:text-slate-300 min-h-[150px] bg-transparent leading-relaxed"
+                    autoFocus
+                />
+            ) : (
+                <div
+                    onClick={() => setIsEditing(true)}
+                    className="min-h-[150px] cursor-text"
+                >
+                    {content ? (
+                        <SimpleMarkdownRenderer content={content} />
+                    ) : (
+                        <p className="text-lg text-slate-300">How was your day?</p>
+                    )}
+                </div>
+            )}
 
             <FloatingGeminiMenu
                 position={menuPosition}
@@ -236,6 +297,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
                 onApplyTool={handleApplyTool}
                 onClose={() => setGeminiState({ loading: false, suggestion: null })}
                 onReply={handleGeminiReply}
+                onAddToNote={handleAddToNote}
             />
         </div>
     );

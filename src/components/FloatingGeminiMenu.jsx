@@ -3,7 +3,14 @@ import { Sparkles, ArrowRight, X } from 'lucide-react';
 
 const FloatingGeminiMenu = ({ position, onAsk, onClose, isLoading, selectedText }) => {
     const [query, setQuery] = useState('');
+    const [isExpanded, setIsExpanded] = useState(false);
     const menuRef = useRef(null);
+
+    // Reset state when selection changes or menu closes
+    useEffect(() => {
+        setIsExpanded(false);
+        setQuery('');
+    }, [selectedText, position]);
 
     useEffect(() => {
         const handleClickOutside = (event) => {
@@ -23,9 +30,35 @@ const FloatingGeminiMenu = ({ position, onAsk, onClose, isLoading, selectedText 
         if (query.trim()) {
             onAsk(query);
             setQuery('');
+            setIsExpanded(false);
         }
     };
 
+    // Collapsed State: Small Icon
+    if (!isExpanded) {
+        return (
+            <div
+                style={{
+                    top: position.top,
+                    left: position.left,
+                    position: 'absolute',
+                    zIndex: 50,
+                }}
+                className="animate-fade-in"
+            >
+                <button
+                    onMouseDown={(e) => e.preventDefault()} // Prevent stealing focus
+                    onClick={() => setIsExpanded(true)}
+                    className="bg-white text-indigo-600 p-2 rounded-full shadow-lg border border-indigo-100 hover:scale-110 transition-transform flex items-center justify-center group"
+                    title="Ask Gemini"
+                >
+                    <Sparkles size={20} className="group-hover:rotate-12 transition-transform" />
+                </button>
+            </div>
+        );
+    }
+
+    // Expanded State: Full Menu
     return (
         <div
             ref={menuRef}
@@ -35,7 +68,7 @@ const FloatingGeminiMenu = ({ position, onAsk, onClose, isLoading, selectedText 
                 position: 'absolute',
                 zIndex: 50,
             }}
-            className="floating-gemini-menu bg-white rounded-xl shadow-lg border border-slate-100 p-2 animate-fade-in flex flex-col gap-2 min-w-[300px]"
+            className="floating-gemini-menu bg-white rounded-xl shadow-xl border border-slate-100 p-2 animate-fade-in flex flex-col gap-2 min-w-[300px]"
         >
             <div className="flex items-center gap-2 border-b border-slate-100 pb-2 mb-1">
                 <Sparkles size={16} className="text-indigo-600" />

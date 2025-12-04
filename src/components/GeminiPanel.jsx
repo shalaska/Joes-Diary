@@ -1,7 +1,7 @@
 import React from 'react';
-import { Sparkles, ArrowRight, PlusCircle } from 'lucide-react';
+import { Sparkles, ArrowRight, PlusCircle, MessageSquarePlus } from 'lucide-react';
 
-const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply }) => {
+const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onAddToNote }) => {
     const [replyText, setReplyText] = React.useState('');
 
     if (!suggestion && !isLoading) return null;
@@ -31,15 +31,28 @@ const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply }) =
                                 {suggestion.content}
                             </p>
 
-                            {suggestion.tool && (
-                                <button
-                                    onClick={() => onApplyTool(suggestion.tool)}
-                                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors mb-3"
-                                >
-                                    <PlusCircle size={16} />
-                                    {suggestion.tool.label}
-                                </button>
-                            )}
+                            <div className="flex flex-wrap gap-2 mb-3">
+                                {suggestion.tool && (
+                                    <button
+                                        onClick={() => onApplyTool(suggestion.tool)}
+                                        className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                                    >
+                                        <PlusCircle size={16} />
+                                        {suggestion.tool.label}
+                                    </button>
+                                )}
+
+                                {onAddToNote && (
+                                    <button
+                                        onClick={onAddToNote}
+                                        className="flex items-center gap-2 bg-white border border-indigo-200 text-indigo-600 hover:bg-indigo-50 px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                                        title="Add conversation to note"
+                                    >
+                                        <MessageSquarePlus size={16} />
+                                        Add to Note
+                                    </button>
+                                )}
+                            </div>
 
                             <form onSubmit={handleSubmit} className="mt-2 flex gap-2">
                                 <input

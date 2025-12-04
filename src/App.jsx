@@ -2,11 +2,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import DiaryEntry from './components/DiaryEntry';
 import Sidebar from './components/Sidebar';
 import Auth from './components/Auth';
+import GeminiPanel from './components/GeminiPanel'; // Import GeminiPanel
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Menu, Book } from 'lucide-react'; // Import Menu icon
+import { Menu, Book, Plus, Sparkles } from 'lucide-react'; // Import Sparkles
 
 import { db as localDB } from './db'; // Rename to avoid confusion
 import { firestoreService } from './firestoreService';
+import { askGemini } from './services/geminiService'; // Import askGemini
 
 function DiaryApp() {
   const { currentUser, logout } = useAuth();
@@ -14,6 +16,10 @@ function DiaryApp() {
   const [trash, setTrash] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Mobile menu state
+
+  // Global Gemini State for Page-Level Analysis
+  const [globalGemini, setGlobalGemini] = useState({ loading: false, suggestion: null });
+  const [globalChatHistory, setGlobalChatHistory] = useState([]);
 
   const [view, setView] = useState('diary'); // 'diary' | 'trash'
 
@@ -160,6 +166,54 @@ function DiaryApp() {
 
   const currentDayEntries = groupedEntries[selectedDate] || [];
 
+  // Page-Level Gemini Handlers
+  const handleAskPage = async () => {
+    if (currentDayEntries.length === 0) return;
+
+    setGlobalGemini({ loading: true, suggestion: null });
+    setGlobalChatHistory([]);
+
+    const aggregatedContent = currentDayEntries
+      .map(e => `[Entry Time: ${new Date(e.date).toLocaleTimeString()}]\n${e.content}`)
+      .join('\n\n---\n\n');
+
+    const prompt = `Here are my diary entries for today (${new Date(selectedDate).toLocaleDateString()}):\n\n${aggregatedContent}\n\nPlease analyze my day. What are the key themes, mood, or events?`;
+
+    try {
+      // We send this as the initial user prompt
+      const suggestion = await askGemini(prompt);
+      setGlobalGemini({ loading: false, suggestion });
+      setGlobalChatHistory([
+        { role: 'user', content: prompt },
+        { role: 'model', content: suggestion.content }
+      ]);
+    } catch (error) {
+      console.error("Error calling Gemini API:", error);
+      setGlobalGemini({
+        loading: false,
+        suggestion: {
+          type: 'question',
+          content: "I'm having trouble analyzing your day right now. Please try again later.",
+        }
+      });
+    }
+  };
+
+  const handleGlobalReply = async (replyText) => {
+    setGlobalGemini(prev => ({ ...prev, loading: true }));
+    const newHistory = [...globalChatHistory, { role: 'user', content: replyText }];
+    setGlobalChatHistory(newHistory);
+
+    try {
+      const suggestion = await askGemini(replyText, newHistory);
+      setGlobalGemini({ loading: false, suggestion });
+      setGlobalChatHistory(prev => [...prev, { role: 'model', content: suggestion.content }]);
+    } catch (error) {
+      console.error("Error calling Gemini API:", error);
+      setGlobalGemini(prev => ({ ...prev, loading: false }));
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* Mobile Header */}
@@ -182,6 +236,7 @@ function DiaryApp() {
         onSelectDate={(date) => {
           setSelectedDate(date);
           setView('diary');
+          setGlobalGemini({ loading: false, suggestion: null }); // Reset global gemini on date change
         }}
         onAddEntry={addEntry}
         onDeleteDay={deleteDay}
@@ -220,10 +275,19 @@ function DiaryApp() {
             </div>
           ) : (
             currentDayEntries.length > 0 ? (
-              <div>
-                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8 border-b border-slate-200 pb-4">
-                  {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                </h1>
+              <div className="pb-20"> {/* Add padding bottom for the panel */}
+                <div className="flex items-center justify-between mb-6 md:mb-8 border-b border-slate-200 pb-4">
+                  <h1 className="text-2xl md:text-3xl font-bold text-slate-900">
+                    {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                  </h1>
+                  <button
+                    onClick={addEntry}
+                    className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 text-sm font-medium"
+                  >
+                    <Plus size={18} />
+                    <span className="hidden sm:inline">New Entry</span>
+                  </button>
+                </div>
                 <div className="space-y-8">
                   {currentDayEntries.map((entry, index) => (
                     <DiaryEntry
@@ -235,6 +299,28 @@ function DiaryApp() {
                       showDateHeader={false} // We show the main date at the top
                     />
                   ))}
+                </div>
+
+                {/* Page Level Gemini Action */}
+                <div className="mt-12 border-t border-slate-100 pt-8">
+                  {!globalGemini.suggestion && !globalGemini.loading ? (
+                    <button
+                      onClick={handleAskPage}
+                      className="w-full flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl transition-colors font-medium border border-indigo-200 border-dashed"
+                    >
+                      <Sparkles size={18} />
+                      <span>Ask Gemini about today</span>
+                    </button>
+                  ) : (
+                    <GeminiPanel
+                      isLoading={globalGemini.loading}
+                      suggestion={globalGemini.suggestion}
+                      onClose={() => setGlobalGemini({ loading: false, suggestion: null })}
+                      onReply={handleGlobalReply}
+                    // No onApplyTool needed for global chat usually, unless we want to append to a specific entry? 
+                    // For now, let's omit it or handle it if needed.
+                    />
+                  )}
                 </div>
               </div>
             ) : (
