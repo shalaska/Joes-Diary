@@ -24,6 +24,10 @@ function DiaryApp() {
 
   const [view, setView] = useState('diary'); // 'diary' | 'trash'
 
+  // Title Renaming State
+  const [isRenamingTitle, setIsRenamingTitle] = useState(false);
+  const [titleInputValue, setTitleInputValue] = useState('');
+
   // If not logged in, show Auth screen
   if (!currentUser) {
     return <Auth />;
@@ -334,13 +338,47 @@ function DiaryApp() {
             currentDayEntries.length > 0 ? (
               <div className="pb-20"> {/* Add padding bottom for the panel */}
                 <div className="flex items-center justify-between mb-6 md:mb-8 border-b border-slate-200 pb-4">
-                  <h1 className="text-2xl md:text-3xl font-bold text-slate-900">
-                    {/* Display Custom Title if available, else Date */}
-                    {dayMetadata[selectedDate]?.customTitle || new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                  </h1>
+                  <div className="flex-1 mr-4">
+                    {isRenamingTitle ? (
+                      <input
+                        type="text"
+                        value={titleInputValue}
+                        onChange={(e) => setTitleInputValue(e.target.value)}
+                        onBlur={() => {
+                          handleUpdateDayMetadata(selectedDate, { customTitle: titleInputValue });
+                          setIsRenamingTitle(false);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            handleUpdateDayMetadata(selectedDate, { customTitle: titleInputValue });
+                            setIsRenamingTitle(false);
+                          } else if (e.key === 'Escape') {
+                            setIsRenamingTitle(false);
+                            setTitleInputValue(dayMetadata[selectedDate]?.customTitle || '');
+                          }
+                        }}
+                        autoFocus
+                        className="text-2xl md:text-3xl font-bold text-slate-900 w-full bg-transparent border-b-2 border-indigo-500 outline-none pb-1"
+                      />
+                    ) : (
+                      <h1
+                        className="text-2xl md:text-3xl font-bold text-slate-900 cursor-pointer hover:text-indigo-600 transition-colors flex items-center gap-2 group"
+                        onClick={() => {
+                          setTitleInputValue(dayMetadata[selectedDate]?.customTitle || '');
+                          setIsRenamingTitle(true);
+                        }}
+                        title="Click to rename"
+                      >
+                        {dayMetadata[selectedDate]?.customTitle || new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                        <span className="opacity-0 group-hover:opacity-100 text-slate-400 text-sm font-normal">
+                          (Rename)
+                        </span>
+                      </h1>
+                    )}
+                  </div>
                   <button
                     onClick={addToCurrentGroup}
-                    className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 text-sm font-medium"
+                    className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 text-sm font-medium whitespace-nowrap"
                   >
                     <Plus size={18} />
                     <span className="hidden sm:inline">New Note</span>
@@ -352,7 +390,7 @@ function DiaryApp() {
                       key={entry.date}
                       date={entry.date}
                       initialContent={entry.content}
-                      onSave={(date, content) => saveEntry(date, content, entry.groupId)}
+                      onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
                       onDelete={deleteEntry}
                       showDateHeader={false} // We show the main date at the top
                     />
