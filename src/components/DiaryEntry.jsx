@@ -5,7 +5,7 @@ import GeminiPanel from './GeminiPanel';
 import FloatingGeminiMenu from './FloatingGeminiMenu';
 import SimpleMarkdownRenderer from './SimpleMarkdownRenderer';
 
-const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true }) => {
+const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, apiKey, systemPrompt, editPrompt }) => {
     const [content, setContent] = useState(initialContent || '');
     const [isSaving, setIsSaving] = useState(false);
     const [geminiState, setGeminiState] = useState({ loading: false, suggestion: null });
@@ -59,21 +59,34 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
             setSelectedText(text);
             setSelectionRange({ start, end });
 
-            // Calculate position relative to the container
-            const containerRect = container.getBoundingClientRect();
+            // Check for mobile (simple width check)
+            const isMobile = window.innerWidth < 768;
 
-            // Position to the right of the container
-            // Top aligned with the click position relative to the container
-            // If clientY is not provided (keyboard selection), default to a reasonable position (e.g., top of textarea)
-            const relativeTop = clientY
-                ? clientY - containerRect.top
-                : textarea.offsetTop + 20;
+            if (isMobile) {
+                setMenuPosition({
+                    position: 'fixed',
+                    bottom: '20px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    top: 'auto',
+                    right: 'auto'
+                });
+            } else {
+                // Desktop behavior (relative to container)
+                const containerRect = container.getBoundingClientRect();
 
-            setMenuPosition({
-                top: relativeTop,
-                left: '100%', // Position outside to the right
-                marginLeft: '16px' // Add some spacing
-            });
+                // Calculate position relative to the container
+                // Top aligned with the click position relative to the container
+                const relativeTop = clientY
+                    ? clientY - containerRect.top
+                    : textarea.offsetTop + 20;
+
+                setMenuPosition({
+                    top: relativeTop,
+                    left: '100%', // Position outside to the right
+                    marginLeft: '16px' // Add some spacing
+                });
+            }
         } else {
             setMenuPosition(null);
         }
@@ -85,14 +98,31 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
             if (e.target.closest('.floating-gemini-menu')) return;
             // Only check selection if we are in edit mode
             if (isEditing) {
+                // For mouse events, we have clientY. For touch, we might not need it as much if we center fixed.
+                // But let's pass it anyway if available.
                 checkSelection(e.clientY);
             }
         };
 
+        const handleTouchEnd = (e) => {
+            if (e.target.closest('.floating-gemini-menu')) return;
+            if (isEditing) {
+                // Touch events don't always give a single clientY easily for the "click" point, 
+                // but for fixed positioning it doesn't matter.
+                // We can just pass null or the first touch's clientY if needed.
+                // Actually, for selection, the browser handles the selection logic. 
+                // We just need to trigger our check.
+                // Wait a tick for selection to settle?
+                setTimeout(() => checkSelection(null), 10);
+            }
+        };
+
         document.addEventListener('mouseup', handleGlobalMouseUp);
+        document.addEventListener('touchend', handleTouchEnd);
 
         return () => {
             document.removeEventListener('mouseup', handleGlobalMouseUp);
+            document.removeEventListener('touchend', handleTouchEnd);
         };
     }, [isEditing]);
 
@@ -100,7 +130,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
         setGeminiState({ loading: true, suggestion: null });
         setChatHistory([]); // Reset history on new "Ask Gemini"
         try {
-            const suggestion = await askGemini(content);
+            const suggestion = await askGemini(content, [], apiKey, systemPrompt);
             setGeminiState({ loading: false, suggestion });
             setChatHistory([{ role: 'model', content: suggestion.content }]);
         } catch (error) {
@@ -121,7 +151,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
         setChatHistory(newHistory);
 
         try {
-            const suggestion = await askGemini(replyText, newHistory);
+            const suggestion = await askGemini(replyText, newHistory, apiKey, systemPrompt);
             setGeminiState({ loading: false, suggestion });
             setChatHistory(prev => [...prev, { role: 'model', content: suggestion.content }]);
         } catch (error) {
@@ -133,7 +163,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
     const handleMenuAction = async (instruction) => {
         setIsMenuLoading(true);
         try {
-            const result = await editSelection(selectedText, instruction);
+            const result = await editSelection(selectedText, instruction, apiKey, editPrompt);
 
             if (result.startsWith("[ANSWER]:")) {
                 const answerContent = result.replace("[ANSWER]: ", "");
@@ -160,6 +190,52 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
             console.error("Error editing selection:", error);
         } finally {
             setIsMenuLoading(false);
+        }
+    };
+
+    const handleDiscussSelection = async (query) => {
+        setMenuPosition(null); // Close floating menu
+        setGeminiState({ loading: true, suggestion: null });
+
+        // Construct the prompt for Gemini
+        const prompt = query
+            ? `Context: """${selectedText}"""\n\nQuestion: ${query}`
+            : `Context: """${selectedText}"""\n\nI want to discuss this text.`;
+
+        // Construct the display message for the user (cleaner)
+        const displayMessage = query
+            ? `"${selectedText}"\n\n${query}`
+            : `"${selectedText}"`;
+
+        // Set chat history with the display message
+        const initialHistory = [
+            { role: 'user', content: displayMessage }
+        ];
+        setChatHistory(initialHistory);
+
+        try {
+            // Ask Gemini with the full prompt (but don't save the full prompt to history yet, 
+            // we already saved the display version. We pass empty history to askGemini 
+            // because we are starting a new context, but we want the *next* turn to include it.)
+
+            // Actually, askGemini takes `history` to build the context. 
+            // If we pass empty history, it only sees the prompt.
+            // If we want subsequent turns to remember this, we need to manage history carefully.
+
+            const suggestion = await askGemini(prompt, [], apiKey, systemPrompt);
+            setGeminiState({ loading: false, suggestion });
+
+            // Update history with Gemini's response
+            setChatHistory(prev => [...prev, { role: 'model', content: suggestion.content }]);
+        } catch (error) {
+            console.error("Error discussing selection:", error);
+            setGeminiState({
+                loading: false,
+                suggestion: {
+                    type: 'question',
+                    content: "I'm having trouble thinking right now. Maybe try again in a moment?",
+                }
+            });
         }
     };
 
@@ -286,6 +362,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
             <FloatingGeminiMenu
                 position={menuPosition}
                 onAsk={handleMenuAction}
+                onDiscuss={handleDiscussSelection}
                 onClose={() => setMenuPosition(null)}
                 isLoading={isMenuLoading}
                 selectedText={selectedText}

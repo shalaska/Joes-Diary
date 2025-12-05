@@ -5,10 +5,11 @@ import Auth from './components/Auth';
 import GeminiPanel from './components/GeminiPanel'; // Import GeminiPanel
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { Menu, Book, Plus, Sparkles } from 'lucide-react'; // Import Sparkles
+import SettingsModal from './components/SettingsModal'; // Import SettingsModal
 
 import { db as localDB } from './db'; // Rename to avoid confusion
 import { firestoreService } from './firestoreService';
-import { askGemini } from './services/geminiService'; // Import askGemini
+import { askGemini, editSelection, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService'; // Import defaults
 
 function DiaryApp() {
   const { currentUser, logout } = useAuth();
@@ -17,6 +18,12 @@ function DiaryApp() {
   const [dayMetadata, setDayMetadata] = useState({}); // Store metadata by date string
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Mobile menu state
+
+  // Settings State
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY || '');
+  const [systemPrompt, setSystemPrompt] = useState(localStorage.getItem('gemini_system_prompt') || DEFAULT_SYSTEM_PROMPT);
+  const [editPrompt, setEditPrompt] = useState(localStorage.getItem('gemini_edit_prompt') || DEFAULT_EDIT_PROMPT);
 
   // Global Gemini State for Page-Level Analysis
   const [globalGemini, setGlobalGemini] = useState({ loading: false, suggestion: null });
@@ -75,7 +82,25 @@ function DiaryApp() {
 
         setEntries(cloudEntries);
         setTrash(cloudTrash);
-        setDayMetadata(metadataMap);
+        setDayMetadata(metadataMap); // Load metadata into state
+        // 3. Load User Settings
+        const userSettings = await firestoreService.getUserSettings(currentUser.uid);
+        if (userSettings) {
+          if (userSettings.apiKey) {
+            setApiKey(userSettings.apiKey);
+            localStorage.setItem('gemini_api_key', userSettings.apiKey);
+          }
+          if (userSettings.systemPrompt) {
+            setSystemPrompt(userSettings.systemPrompt);
+            localStorage.setItem('gemini_system_prompt', userSettings.systemPrompt);
+          }
+          if (userSettings.editPrompt) {
+            setEditPrompt(userSettings.editPrompt);
+            localStorage.setItem('gemini_edit_prompt', userSettings.editPrompt);
+          }
+        }
+
+        setIsLoading(false);
       } catch (error) {
         console.error("Failed to load data:", error);
       } finally {
@@ -148,6 +173,22 @@ function DiaryApp() {
     setEntries(allEntries);
     const allTrash = await firestoreService.getTrash(currentUser.uid);
     setTrash(allTrash);
+  };
+
+  const handleSaveSettings = async (newKey, newPrompt, newEditPrompt) => {
+    setApiKey(newKey);
+    setSystemPrompt(newPrompt);
+    setEditPrompt(newEditPrompt);
+    localStorage.setItem('gemini_api_key', newKey);
+    localStorage.setItem('gemini_system_prompt', newPrompt);
+    localStorage.setItem('gemini_edit_prompt', newEditPrompt);
+
+    // Sync to Firestore
+    await firestoreService.saveUserSettings(currentUser.uid, {
+      apiKey: newKey,
+      systemPrompt: newPrompt,
+      editPrompt: newEditPrompt
+    });
   };
 
   const handleUpdateDayMetadata = async (groupId, newMetadata) => {
@@ -379,6 +420,7 @@ function DiaryApp() {
         userEmail={currentUser.email}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
+        onSettings={() => setIsSettingsOpen(true)}
       />
 
       <main className="flex-1 md:ml-64 p-4 md:p-12 lg:p-16 overflow-y-auto h-[calc(100vh-65px)] md:h-screen">
@@ -467,6 +509,9 @@ function DiaryApp() {
                         onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
                         onDelete={deleteEntry}
                         showDateHeader={false} // We show the main date at the top
+                        apiKey={apiKey} // Pass API key
+                        systemPrompt={systemPrompt} // Pass system prompt
+                        editPrompt={editPrompt} // Pass edit prompt
                       />
                     ))}
 
@@ -482,6 +527,9 @@ function DiaryApp() {
                         onDelete={deleteEntry}
                         showDateHeader={false}
                         isAnalysis={true} // Optional: Pass a prop if we want special styling
+                        apiKey={apiKey}
+                        systemPrompt={systemPrompt}
+                        editPrompt={editPrompt}
                       />
                     ))}
                 </div>
@@ -516,6 +564,14 @@ function DiaryApp() {
           )}
         </div>
       </main>
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onSave={handleSaveSettings}
+        initialApiKey={apiKey}
+        initialSystemPrompt={systemPrompt}
+        initialEditPrompt={editPrompt}
+      />
     </div>
   );
 }

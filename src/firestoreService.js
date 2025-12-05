@@ -103,5 +103,22 @@ export const firestoreService = {
         const ref = doc(db, 'users', userId, 'dayMetadata', dateStr);
         // Merge true to allow partial updates if we add more fields later
         await setDoc(ref, metadata, { merge: true });
+    },
+
+    async getUserSettings(userId) {
+        const ref = doc(db, 'users', userId, 'settings', 'general');
+        const snapshot = await getDocs(query(collection(db, 'users', userId, 'settings')));
+        // We'll just use a single document 'general' for now
+        const docSnap = await import('firebase/firestore').then(mod => mod.getDoc(ref));
+
+        if (docSnap.exists()) {
+            return docSnap.data();
+        }
+        return null;
+    },
+
+    async saveUserSettings(userId, settings) {
+        const ref = doc(db, 'users', userId, 'settings', 'general');
+        await setDoc(ref, settings, { merge: true });
     }
 };

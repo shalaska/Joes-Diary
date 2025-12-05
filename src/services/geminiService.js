@@ -1,12 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
-
-// Initialize the API client
-const genAI = new GoogleGenerativeAI(API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-
-const SYSTEM_PROMPT = `
+export const DEFAULT_SYSTEM_PROMPT = `
 You are a supportive, insightful "Thinking Partner" for a user writing in their diary.
 Your goal is to help the user reflect deeper, organize their thoughts, or expand on their ideas.
 You should be empathetic, non-judgmental, and concise.
@@ -31,17 +25,36 @@ Examples of behaviors:
 3. If the user is stuck, offer to expand or list pros/cons ("type": "expansion", with a tool).
 `;
 
-export const askGemini = async (text, history = []) => {
-    if (!API_KEY || API_KEY === 'YOUR_API_KEY_HERE') {
+export const DEFAULT_EDIT_PROMPT = `
+You are a helpful writing assistant.
+The user has selected the following text: "{{selection}}"
+
+The user wants you to: "{{instruction}}"
+
+Return ONLY the new text that should replace the selection. 
+Do not add any explanations, quotes, or markdown unless requested.
+If the user asks a question instead of an edit, answer the question but prefix it with "[ANSWER]: ".
+`;
+
+const getModel = (apiKey) => {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    return genAI.getGenerativeModel({ model: "gemini-flash-latest" });
+};
+
+export const askGemini = async (text, history = [], apiKey, systemPrompt) => {
+    if (!apiKey) {
         console.warn("Gemini API Key is missing.");
         return {
             type: 'suggestion',
-            content: "I can't connect to my brain right now because the API key is missing. Please add your VITE_GEMINI_API_KEY to the .env file.",
+            content: "I can't connect to my brain right now because the API key is missing. Please add your API Key in Settings.",
         };
     }
 
     try {
-        let promptParts = [SYSTEM_PROMPT];
+        const model = getModel(apiKey);
+        const activeSystemPrompt = systemPrompt || DEFAULT_SYSTEM_PROMPT;
+
+        let promptParts = [activeSystemPrompt];
 
         // Add history to context
         if (history.length > 0) {
@@ -66,29 +79,23 @@ export const askGemini = async (text, history = []) => {
         console.error("Error calling Gemini API:", error);
         return {
             type: 'question',
-            content: "I'm having trouble thinking right now. Maybe try again in a moment?",
+            content: "I'm having trouble thinking right now. Please check your API Key in Settings.",
         };
     }
 };
 
-export const editSelection = async (selection, instruction) => {
-    if (!API_KEY || API_KEY === 'YOUR_API_KEY_HERE') {
+export const editSelection = async (selection, instruction, apiKey, editPrompt) => {
+    if (!apiKey) {
         return { content: selection }; // Fail safe
     }
 
-    const EDIT_PROMPT = `
-    You are a helpful writing assistant.
-    The user has selected the following text: "${selection}"
-    
-    The user wants you to: "${instruction}"
-    
-    Return ONLY the new text that should replace the selection. 
-    Do not add any explanations, quotes, or markdown unless requested.
-    If the user asks a question instead of an edit, answer the question but prefix it with "[ANSWER]: ".
-    `;
+    const activeEditPrompt = (editPrompt || DEFAULT_EDIT_PROMPT)
+        .replace('{{selection}}', selection)
+        .replace('{{instruction}}', instruction);
 
     try {
-        const result = await model.generateContent(EDIT_PROMPT);
+        const model = getModel(apiKey);
+        const result = await model.generateContent(activeEditPrompt);
         const response = await result.response;
         return response.text().trim();
     } catch (error) {
