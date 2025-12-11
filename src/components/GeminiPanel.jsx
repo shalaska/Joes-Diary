@@ -5,8 +5,6 @@ const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onA
     const [initialPrompt, setInitialPrompt] = React.useState('');
     const [replyText, setReplyText] = React.useState('');
 
-    if (!suggestion && !isLoading && !isWaitingForPrompt) return null;
-
     const panelRef = React.useRef(null);
 
     React.useEffect(() => {
@@ -14,6 +12,8 @@ const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onA
             panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
     }, [isWaitingForPrompt, isLoading, suggestion]);
+
+    if (!suggestion && !isLoading && !isWaitingForPrompt) return null;
 
     const handleSubmit = (e) => {
         e.preventDefault();
