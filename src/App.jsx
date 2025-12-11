@@ -267,30 +267,52 @@ function DiaryApp() {
   const currentDayEntries = groupedEntries[selectedDate] || [];
 
   // Page-Level Gemini Handlers
-  const handleAskPage = async () => {
+  const handleAskPage = () => {
     if (currentDayEntries.length === 0) return;
-
-    setGlobalGemini({ loading: true, suggestion: null });
+    setGlobalGemini({ loading: false, suggestion: null, isWaitingForPrompt: true });
     setGlobalChatHistory([]);
+  };
+
+  const handleConfirmAskPage = async (customPrompt) => {
+    setGlobalGemini({ loading: true, suggestion: null, isWaitingForPrompt: false });
 
     const aggregatedContent = currentDayEntries
       .map(e => `[Entry Time: ${new Date(e.date).toLocaleTimeString()}]\n${e.content}`)
       .join('\n\n---\n\n');
 
-    const prompt = `Here are my diary entries for today (${new Date(selectedDate).toLocaleDateString()}):\n\n${aggregatedContent}\n\nPlease analyze my day. What are the key themes, mood, or events?`;
+    let prompt = '';
+    if (customPrompt) {
+      prompt = `Here are my diary entries for today (${new Date(selectedDate).toLocaleDateString()}):\n\n${aggregatedContent}\n\nQuestion: ${customPrompt}`;
+    } else {
+      prompt = `Here are my diary entries for today (${new Date(selectedDate).toLocaleDateString()}):\n\n${aggregatedContent}\n\nPlease analyze my day. What are the key themes, mood, or events?`;
+    }
 
     try {
       // We send this as the initial user prompt
       const suggestion = await askGemini(prompt, [], apiKey, systemPrompt);
-      setGlobalGemini({ loading: false, suggestion });
-      setGlobalChatHistory([
-        { role: 'user', content: prompt },
-        { role: 'model', content: suggestion.content }
-      ]);
+      setGlobalGemini({ loading: false, suggestion, isWaitingForPrompt: false });
+
+      if (customPrompt) {
+        setGlobalChatHistory([
+          { role: 'user', content: customPrompt },
+          { role: 'model', content: suggestion.content }
+        ]);
+      } else {
+        // If default analysis, we might just show the result, or show a generic prompt in history
+        // Let's mimic what we did before: show the initial prompt (or maybe just the Question?)
+        // If we show the HUGE context prompt, it's ugly.
+        // Let's just show "Analyze my day" as the user prompt in history if it was default.
+        setGlobalChatHistory([
+          { role: 'user', content: "Analyze my day" },
+          { role: 'model', content: suggestion.content }
+        ]);
+      }
+
     } catch (error) {
       console.error("Error calling Gemini API:", error);
       setGlobalGemini({
         loading: false,
+        isWaitingForPrompt: false,
         suggestion: {
           type: 'question',
           content: "I'm having trouble analyzing your day right now. Please try again later.",
@@ -536,7 +558,7 @@ function DiaryApp() {
 
                 {/* Page Level Gemini Action */}
                 <div className="mt-12 border-t border-slate-100 pt-8">
-                  {!globalGemini.suggestion && !globalGemini.loading ? (
+                  {!globalGemini.suggestion && !globalGemini.loading && !globalGemini.isWaitingForPrompt ? (
                     <button
                       onClick={handleAskPage}
                       className="w-full flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl transition-colors font-medium border border-indigo-200 border-dashed"
@@ -548,7 +570,9 @@ function DiaryApp() {
                     <GeminiPanel
                       isLoading={globalGemini.loading}
                       suggestion={globalGemini.suggestion}
-                      onClose={() => setGlobalGemini({ loading: false, suggestion: null })}
+                      isWaitingForPrompt={globalGemini.isWaitingForPrompt}
+                      onAsk={handleConfirmAskPage}
+                      onClose={() => setGlobalGemini({ loading: false, suggestion: null, isWaitingForPrompt: false })}
                       onReply={handleGlobalReply}
                       onAddToNote={handleSaveGlobalAnalysis}
                       saveLabel="Save as Note"

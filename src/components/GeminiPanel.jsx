@@ -7,6 +7,14 @@ const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onA
 
     if (!suggestion && !isLoading && !isWaitingForPrompt) return null;
 
+    const panelRef = React.useRef(null);
+
+    React.useEffect(() => {
+        if ((isWaitingForPrompt || isLoading || suggestion) && panelRef.current) {
+            panelRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    }, [isWaitingForPrompt, isLoading, suggestion]);
+
     const handleSubmit = (e) => {
         e.preventDefault();
         if (replyText.trim()) {
@@ -24,7 +32,7 @@ const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onA
     };
 
     return (
-        <div className="mt-4 bg-indigo-50 border border-indigo-100 rounded-xl p-4 animate-fade-in relative">
+        <div ref={panelRef} className="mt-4 bg-indigo-50 border border-indigo-100 rounded-xl p-4 animate-fade-in relative">
             <div className="flex items-start gap-3">
                 <div className="bg-indigo-100 p-2 rounded-full text-indigo-600">
                     <Sparkles size={18} />
