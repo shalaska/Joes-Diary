@@ -103,3 +103,39 @@ export const editSelection = async (selection, instruction, apiKey, editPrompt) 
         return selection;
     }
 };
+
+const TODO_EXTRACTION_PROMPT = `
+You are a task extraction assistant.
+Analyze the following text and identify any actionable tasks or "todos".
+Return a JSON array of objects, where each object has:
+- "text": A concise description of the task.
+- "priority": "high", "medium", or "low" based on urgency or importance implied.
+
+If no tasks are found, return an empty array [].
+Do NOT use Markdown. Return ONLY raw JSON.
+
+Text to analyze:
+"{{text}}"
+`;
+
+export const extractTodos = async (text, apiKey) => {
+    if (!apiKey) {
+        console.warn("Gemini API Key is missing for todo extraction.");
+        return [];
+    }
+
+    const prompt = TODO_EXTRACTION_PROMPT.replace('{{text}}', text);
+
+    try {
+        const model = getModel(apiKey);
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        const textResponse = response.text();
+
+        const cleanJson = textResponse.replace(/```json\n?|\n?```/g, '').trim();
+        return JSON.parse(cleanJson);
+    } catch (error) {
+        console.error("Error extracting todos:", error);
+        return [];
+    }
+};

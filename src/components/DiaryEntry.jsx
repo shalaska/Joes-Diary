@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Save, Sparkles, Trash2 } from 'lucide-react';
-import { askGemini, editSelection } from '../services/geminiService';
+import { Save, Sparkles, Trash2, ListTodo } from 'lucide-react';
+import { askGemini, editSelection, extractTodos } from '../services/geminiService';
 import GeminiPanel from './GeminiPanel';
 import FloatingGeminiMenu from './FloatingGeminiMenu';
 import SimpleMarkdownRenderer from './SimpleMarkdownRenderer';
 
-const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, apiKey, systemPrompt, editPrompt }) => {
+const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, apiKey, systemPrompt, editPrompt, onAddTodos }) => {
     const [content, setContent] = useState(initialContent || '');
     const [isSaving, setIsSaving] = useState(false);
     const [geminiState, setGeminiState] = useState({ loading: false, suggestion: null });
@@ -257,6 +257,45 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
         }
     };
 
+    const handleExtractTodos = async () => {
+        setGeminiState({ loading: false, suggestion: null, isWaitingForPrompt: false }); // Reset state
+        setGeminiState(prev => ({ ...prev, loading: true }));
+
+        try {
+            const todos = await extractTodos(content, apiKey);
+            if (todos && todos.length > 0) {
+                setGeminiState({
+                    loading: false,
+                    isWaitingForPrompt: false,
+                    suggestion: {
+                        type: 'todos',
+                        content: '', // Not used for todos
+                        todos: todos
+                    }
+                });
+            } else {
+                setGeminiState({
+                    loading: false,
+                    isWaitingForPrompt: false,
+                    suggestion: {
+                        type: 'text',
+                        content: "I couldn't find any clear tasks in this entry."
+                    }
+                });
+            }
+        } catch (error) {
+            console.error("Error extracting todos:", error);
+            setGeminiState({
+                loading: false,
+                isWaitingForPrompt: false,
+                suggestion: {
+                    type: 'text',
+                    content: "Sorry, I encountered an error while looking for tasks."
+                }
+            });
+        }
+    };
+
     const handleApplyTool = (tool) => {
         if (tool.action === 'insert' || tool.action === 'heading') {
             const newContent = content + (content.endsWith('\n') ? '' : '\n') + tool.value;
@@ -330,6 +369,14 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
                         <Sparkles size={14} />
                         <span>Ask Gemini</span>
                     </button>
+                    <button
+                        onClick={handleExtractTodos}
+                        className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-full text-sm font-medium transition-colors opacity-0 group-hover:opacity-100"
+                        title="Create Todos"
+                    >
+                        <ListTodo size={14} />
+                        <span>Create Todos</span>
+                    </button>
                     <div className="flex items-center text-sm text-slate-400 w-24 justify-end gap-3">
                         {isSaving ? (
                             <span className="flex items-center gap-1 animate-pulse">
@@ -395,6 +442,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
                 onClose={() => setGeminiState({ loading: false, suggestion: null, isWaitingForPrompt: false })}
                 onReply={handleGeminiReply}
                 onAddToNote={handleAddToNote}
+                onAddTodos={onAddTodos}
             />
         </div>
     );

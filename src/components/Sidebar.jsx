@@ -17,6 +17,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
+import TodoSection from './TodoSection';
+
 const SortableItem = ({ id, dateStr, dayMetadata, isSelected, onSelect, onDelete, onRename, entriesForDay }) => {
     const {
         attributes,
@@ -130,7 +132,10 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
     userEmail,
     isOpen,
     onClose,
-    onSettings
+    onSettings,
+    todos,
+    onToggleTodo,
+    onDeleteTodo
 }) => {
     // Sort dates based on metadata (if available) or default to date descending
     // We need to maintain a local sorted list for DnD to work smoothly
@@ -230,6 +235,17 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
                 </div>
 
                 <div className="flex-1 overflow-y-auto py-4">
+                    {/* Todo Section */}
+                    {todos && todos.length > 0 && (
+                        <div className="px-6 mb-4">
+                            <TodoSection
+                                todos={todos}
+                                onToggle={onToggleTodo}
+                                onDelete={onDeleteTodo}
+                            />
+                        </div>
+                    )}
+
                     <h3 className="px-6 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
                         History
                     </h3>

@@ -18,6 +18,7 @@ function DiaryApp() {
   const [dayMetadata, setDayMetadata] = useState({}); // Store metadata by date string
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Mobile menu state
+  const [todos, setTodos] = useState([]); // Todo State
 
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -83,6 +84,10 @@ function DiaryApp() {
         setEntries(cloudEntries);
         setTrash(cloudTrash);
         setDayMetadata(metadataMap); // Load metadata into state
+
+        const cloudTodos = await firestoreService.getTodos(currentUser.uid);
+        setTodos(cloudTodos);
+
         // 3. Load User Settings
         const userSettings = await firestoreService.getUserSettings(currentUser.uid);
         if (userSettings) {
@@ -262,7 +267,33 @@ function DiaryApp() {
     if (selectedDate === groupId) {
       setSelectedDate(null); // Effect will handle picking a new default
     }
+    if (selectedDate === groupId) {
+      setSelectedDate(null); // Effect will handle picking a new default
+    }
   };
+
+  // Todo Handlers
+  const handleAddTodos = async (newTodos) => {
+    // Optimistic update
+    const todosWithIds = newTodos.map(t => ({ ...t, id: Date.now() + Math.random().toString(36).substr(2, 9) + "-" + Math.random().toString(36).substr(2, 9), created: new Date().toISOString() }));
+    setTodos(prev => [...prev, ...todosWithIds]);
+
+    // Cloud update
+    for (const todo of todosWithIds) {
+      await firestoreService.saveTodo(currentUser.uid, todo);
+    }
+  };
+
+  const handleToggleTodo = async (todoId, completed) => {
+    setTodos(prev => prev.map(t => t.id === todoId ? { ...t, completed } : t));
+    await firestoreService.updateTodo(currentUser.uid, todoId, { completed });
+  };
+
+  const handleDeleteTodo = async (todoId) => {
+    setTodos(prev => prev.filter(t => t.id !== todoId));
+    await firestoreService.deleteTodo(currentUser.uid, todoId);
+  };
+
 
   const currentDayEntries = groupedEntries[selectedDate] || [];
 
@@ -443,6 +474,10 @@ function DiaryApp() {
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
         onSettings={() => setIsSettingsOpen(true)}
+        // Todo Props
+        todos={todos}
+        onToggleTodo={handleToggleTodo}
+        onDeleteTodo={handleDeleteTodo}
       />
 
       <main className="flex-1 md:ml-64 p-4 md:p-12 lg:p-16 overflow-y-auto h-[calc(100vh-65px)] md:h-screen">
@@ -534,6 +569,7 @@ function DiaryApp() {
                         apiKey={apiKey} // Pass API key
                         systemPrompt={systemPrompt} // Pass system prompt
                         editPrompt={editPrompt} // Pass edit prompt
+                        onAddTodos={handleAddTodos} // Pass todo handler
                       />
                     ))}
 
@@ -552,6 +588,7 @@ function DiaryApp() {
                         apiKey={apiKey}
                         systemPrompt={systemPrompt}
                         editPrompt={editPrompt}
+                        onAddTodos={handleAddTodos}
                       />
                     ))}
                 </div>

@@ -120,5 +120,31 @@ export const firestoreService = {
     async saveUserSettings(userId, settings) {
         const ref = doc(db, 'users', userId, 'settings', 'general');
         await setDoc(ref, settings, { merge: true });
+    },
+
+    // Todo Operations
+    async getTodos(uid) {
+        const q = query(collection(db, 'users', uid, 'todos'));
+        const querySnapshot = await getDocs(q);
+        return querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    },
+
+    async saveTodo(uid, todo) {
+        // If todo has an id, set it, otherwise add new
+        if (todo.id) {
+            const todoRef = doc(db, 'users', uid, 'todos', todo.id);
+            await setDoc(todoRef, todo);
+        } else {
+            await addDoc(collection(db, 'users', uid, 'todos'), todo);
+        }
+    },
+
+    async updateTodo(uid, todoId, updates) {
+        const todoRef = doc(db, 'users', uid, 'todos', todoId);
+        await updateDoc(todoRef, updates);
+    },
+
+    async deleteTodo(uid, todoId) {
+        await deleteDoc(doc(db, 'users', uid, 'todos', todoId));
     }
 };
