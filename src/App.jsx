@@ -281,7 +281,7 @@ function DiaryApp() {
 
     try {
       // We send this as the initial user prompt
-      const suggestion = await askGemini(prompt);
+      const suggestion = await askGemini(prompt, [], apiKey, systemPrompt);
       setGlobalGemini({ loading: false, suggestion });
       setGlobalChatHistory([
         { role: 'user', content: prompt },
@@ -305,7 +305,7 @@ function DiaryApp() {
     setGlobalChatHistory(newHistory);
 
     try {
-      const suggestion = await askGemini(replyText, newHistory);
+      const suggestion = await askGemini(replyText, newHistory, apiKey, systemPrompt);
       setGlobalGemini({ loading: false, suggestion });
       setGlobalChatHistory(prev => [...prev, { role: 'model', content: suggestion.content }]);
     } catch (error) {

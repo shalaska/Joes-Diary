@@ -1,16 +1,25 @@
 import React from 'react';
 import { Sparkles, ArrowRight, PlusCircle, MessageSquarePlus } from 'lucide-react';
 
-const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onAddToNote, saveLabel = "Add to Note" }) => {
+const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onAddToNote, isWaitingForPrompt, onAsk, saveLabel = "Add to Note" }) => {
+    const [initialPrompt, setInitialPrompt] = React.useState('');
     const [replyText, setReplyText] = React.useState('');
 
-    if (!suggestion && !isLoading) return null;
+    if (!suggestion && !isLoading && !isWaitingForPrompt) return null;
 
     const handleSubmit = (e) => {
         e.preventDefault();
         if (replyText.trim()) {
             onReply(replyText);
             setReplyText('');
+        }
+    };
+
+    const handleInitialSubmit = (e) => {
+        e.preventDefault();
+        if (onAsk) {
+            onAsk(initialPrompt);
+            setInitialPrompt('');
         }
     };
 
@@ -21,7 +30,27 @@ const GeminiPanel = ({ suggestion, isLoading, onApplyTool, onClose, onReply, onA
                     <Sparkles size={18} />
                 </div>
                 <div className="flex-1">
-                    {isLoading ? (
+                    {isWaitingForPrompt ? (
+                        <div className="animate-fade-in">
+                            <p className="text-indigo-900 font-medium mb-2">What would you like to know?</p>
+                            <form onSubmit={handleInitialSubmit} className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={initialPrompt}
+                                    onChange={(e) => setInitialPrompt(e.target.value)}
+                                    placeholder="Leave empty for general analysis..."
+                                    className="flex-1 px-3 py-2 rounded-lg border border-indigo-200 focus:outline-none focus:border-indigo-400 text-sm"
+                                    autoFocus
+                                />
+                                <button
+                                    type="submit"
+                                    className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
+                                >
+                                    Ask
+                                </button>
+                            </form>
+                        </div>
+                    ) : isLoading ? (
                         <div className="flex items-center gap-2 text-indigo-800 font-medium">
                             <span className="animate-pulse">Gemini is thinking...</span>
                         </div>

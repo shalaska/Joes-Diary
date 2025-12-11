@@ -126,17 +126,35 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
         };
     }, [isEditing]);
 
-    const handleAskGemini = async () => {
-        setGeminiState({ loading: true, suggestion: null });
-        setChatHistory([]); // Reset history on new "Ask Gemini"
+    const handleAskGemini = () => {
+        // Show the panel with input
+        setGeminiState({ loading: false, suggestion: null, isWaitingForPrompt: true });
+        setChatHistory([]);
+    };
+
+    const handleConfirmAsk = async (customPrompt) => {
+        setGeminiState({ loading: true, suggestion: null, isWaitingForPrompt: false });
+
+        const finalPrompt = customPrompt ? `Context: """${content}"""\n\nQuestion: ${customPrompt}` : content;
+
         try {
-            const suggestion = await askGemini(content, [], apiKey, systemPrompt);
-            setGeminiState({ loading: false, suggestion });
-            setChatHistory([{ role: 'model', content: suggestion.content }]);
+            const suggestion = await askGemini(finalPrompt, [], apiKey, systemPrompt);
+            setGeminiState({ loading: false, suggestion, isWaitingForPrompt: false });
+
+            // If custom prompt, seed history so it looks nice
+            if (customPrompt) {
+                setChatHistory([
+                    { role: 'user', content: customPrompt },
+                    { role: 'model', content: suggestion.content }
+                ]);
+            } else {
+                setChatHistory([{ role: 'model', content: suggestion.content }]);
+            }
         } catch (error) {
             console.error("Error calling Gemini API:", error);
             setGeminiState({
                 loading: false,
+                isWaitingForPrompt: false,
                 suggestion: {
                     type: 'question',
                     content: "I'm having trouble thinking right now. Maybe try again in a moment?",
@@ -371,8 +389,10 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
             <GeminiPanel
                 isLoading={geminiState.loading}
                 suggestion={geminiState.suggestion}
+                isWaitingForPrompt={geminiState.isWaitingForPrompt}
+                onAsk={handleConfirmAsk}
                 onApplyTool={handleApplyTool}
-                onClose={() => setGeminiState({ loading: false, suggestion: null })}
+                onClose={() => setGeminiState({ loading: false, suggestion: null, isWaitingForPrompt: false })}
                 onReply={handleGeminiReply}
                 onAddToNote={handleAddToNote}
             />
