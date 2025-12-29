@@ -363,7 +363,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
                 <div className="flex items-center gap-3">
                     <button
                         onClick={handleAskGemini}
-                        className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-full text-sm font-medium transition-colors opacity-0 group-hover:opacity-100"
+                        className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
                         title="Ask Gemini"
                     >
                         <Sparkles size={14} />
@@ -371,7 +371,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
                     </button>
                     <button
                         onClick={handleExtractTodos}
-                        className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-full text-sm font-medium transition-colors opacity-0 group-hover:opacity-100"
+                        className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
                         title="Create Todos"
                     >
                         <ListTodo size={14} />

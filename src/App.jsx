@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import DiaryEntry from './components/DiaryEntry';
 import Sidebar from './components/Sidebar';
+import TodoSection from './components/TodoSection';
 import Auth from './components/Auth';
 import GeminiPanel from './components/GeminiPanel'; // Import GeminiPanel
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Menu, Book, Plus, Sparkles } from 'lucide-react'; // Import Sparkles
+import { Menu, Book, Plus, Sparkles, ListTodo } from 'lucide-react'; // Import Sparkles
 import SettingsModal from './components/SettingsModal'; // Import SettingsModal
 
 import { db as localDB } from './db'; // Rename to avoid confusion
 import { firestoreService } from './firestoreService';
-import { askGemini, editSelection, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService'; // Import defaults
+import { askGemini, editSelection, extractTodos, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService'; // Import defaults
 
 function DiaryApp() {
   const { currentUser, logout } = useAuth();
@@ -352,6 +353,50 @@ function DiaryApp() {
     }
   };
 
+  const handleExtractTodosPage = async () => {
+    if (currentDayEntries.length === 0) return;
+    setGlobalGemini({ loading: false, suggestion: null, isWaitingForPrompt: false });
+    setGlobalGemini(prev => ({ ...prev, loading: true }));
+
+    const aggregatedContent = currentDayEntries
+      .map(e => `[Entry Time: ${new Date(e.date).toLocaleTimeString()}]\n${e.content}`)
+      .join('\n\n---\n\n');
+
+    try {
+      const todos = await extractTodos(aggregatedContent, apiKey);
+      if (todos && todos.length > 0) {
+        setGlobalGemini({
+          loading: false,
+          isWaitingForPrompt: false,
+          suggestion: {
+            type: 'todos',
+            content: '',
+            todos: todos
+          }
+        });
+      } else {
+        setGlobalGemini({
+          loading: false,
+          isWaitingForPrompt: false,
+          suggestion: {
+            type: 'text',
+            content: "I couldn't find any clear tasks in today's entries."
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Error extracting page todos:", error);
+      setGlobalGemini({
+        loading: false,
+        isWaitingForPrompt: false,
+        suggestion: {
+          type: 'text',
+          content: "Sorry, I encountered an error while looking for tasks."
+        }
+      });
+    }
+  };
+
   const handleGlobalReply = async (replyText) => {
     setGlobalGemini(prev => ({ ...prev, loading: true }));
     const newHistory = [...globalChatHistory, { role: 'user', content: replyText }];
@@ -469,6 +514,7 @@ function DiaryApp() {
         onDeleteDay={deleteGroup}
         currentView={view}
         onViewTrash={() => setView('trash')}
+        onViewTodos={() => setView('todos')}
         onLogout={logout}
         userEmail={currentUser.email}
         isOpen={isMobileMenuOpen}
@@ -482,7 +528,25 @@ function DiaryApp() {
 
       <main className="flex-1 md:ml-64 p-4 md:p-12 lg:p-16 overflow-y-auto h-[calc(100vh-65px)] md:h-screen">
         <div className="max-w-3xl mx-auto">
-          {view === 'trash' ? (
+          {view === 'todos' ? (
+            <div className="pb-20">
+              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8 border-b border-slate-200 pb-4 flex items-center gap-3">
+                <ListTodo className="text-indigo-600" size={32} />
+                <span>Todos</span>
+                <span className="text-sm font-normal text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{todos.filter(t => !t.completed).length} active</span>
+              </h1>
+
+              {/* Use TodoSection but with full width styling if possible, or just standard */}
+              <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                <TodoSection
+                  todos={todos}
+                  onToggle={handleToggleTodo}
+                  onDelete={handleDeleteTodo}
+                  isPage={true}
+                />
+              </div>
+            </div>
+          ) : view === 'trash' ? (
             <div>
               <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8 border-b border-slate-200 pb-4 flex items-center gap-3">
                 <span className="text-slate-400">Trash</span>
@@ -596,13 +660,22 @@ function DiaryApp() {
                 {/* Page Level Gemini Action */}
                 <div className="mt-12 border-t border-slate-100 pt-8">
                   {!globalGemini.suggestion && !globalGemini.loading && !globalGemini.isWaitingForPrompt ? (
-                    <button
-                      onClick={handleAskPage}
-                      className="w-full flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl transition-colors font-medium border border-indigo-200 border-dashed"
-                    >
-                      <Sparkles size={18} />
-                      <span>Ask Gemini about today</span>
-                    </button>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <button
+                        onClick={handleAskPage}
+                        className="flex-1 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl transition-colors font-medium border border-indigo-200 border-dashed"
+                      >
+                        <Sparkles size={18} />
+                        <span>Ask Gemini about today</span>
+                      </button>
+                      <button
+                        onClick={handleExtractTodosPage}
+                        className="flex-shrink-0 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 px-6 rounded-xl transition-colors font-medium border border-indigo-200 border-dashed"
+                      >
+                        <ListTodo size={18} />
+                        <span>Create Todos from Today</span>
+                      </button>
+                    </div>
                   ) : (
                     <GeminiPanel
                       isLoading={globalGemini.loading}
@@ -612,6 +685,7 @@ function DiaryApp() {
                       onClose={() => setGlobalGemini({ loading: false, suggestion: null, isWaitingForPrompt: false })}
                       onReply={handleGlobalReply}
                       onAddToNote={handleSaveGlobalAnalysis}
+                      onAddTodos={handleAddTodos}
                       saveLabel="Save as Note"
                     />
                   )}

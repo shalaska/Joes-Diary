@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Book, Plus, Trash2, LogOut, User, X, GripVertical, Settings } from 'lucide-react';
+import { Book, Plus, Trash2, LogOut, User, X, GripVertical, Settings, ListTodo } from 'lucide-react';
 import {
     DndContext,
     closestCenter,
@@ -17,7 +17,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
-import TodoSection from './TodoSection';
+
 
 const SortableItem = ({ id, dateStr, dayMetadata, isSelected, onSelect, onDelete, onRename, entriesForDay }) => {
     const {
@@ -135,7 +135,8 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
     onSettings,
     todos,
     onToggleTodo,
-    onDeleteTodo
+    onDeleteTodo,
+    onViewTodos
 }) => {
     // Sort dates based on metadata (if available) or default to date descending
     // We need to maintain a local sorted list for DnD to work smoothly
@@ -235,15 +236,24 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
                 </div>
 
                 <div className="flex-1 overflow-y-auto py-4">
-                    {/* Todo Section */}
+                    {/* Todos Button relative to History */}
                     {todos && todos.length > 0 && (
-                        <div className="px-6 mb-4">
-                            <TodoSection
-                                todos={todos}
-                                onToggle={onToggleTodo}
-                                onDelete={onDeleteTodo}
-                            />
-                        </div>
+                        <button
+                            onClick={() => {
+                                onViewTodos?.();
+                                onClose?.();
+                            }}
+                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors mb-2 ${currentView === 'todos'
+                                ? 'bg-indigo-50 text-indigo-700 font-medium'
+                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                                }`}
+                        >
+                            <ListTodo size={18} />
+                            <span>Todos</span>
+                            <span className="ml-auto bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full">
+                                {todos.filter(t => !t.completed).length}
+                            </span>
+                        </button>
                     )}
 
                     <h3 className="px-6 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
