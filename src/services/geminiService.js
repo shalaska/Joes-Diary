@@ -110,6 +110,7 @@ Analyze the following text and identify any actionable tasks or "todos".
 Return a JSON array of objects, where each object has:
 - "text": A concise description of the task.
 - "priority": "high", "medium", or "low" based on urgency or importance implied.
+- "category": "work" or "personal" based on the context of the task.
 
 If no tasks are found, return an empty array [].
 Do NOT use Markdown. Return ONLY raw JSON.

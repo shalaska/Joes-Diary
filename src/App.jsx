@@ -3,23 +3,26 @@ import DiaryEntry from './components/DiaryEntry';
 import Sidebar from './components/Sidebar';
 import TodoSection from './components/TodoSection';
 import Auth from './components/Auth';
-import GeminiPanel from './components/GeminiPanel'; // Import GeminiPanel
+import GeminiPanel from './components/GeminiPanel';
+import CalendarPanel from './components/CalendarPanel';
+import ScheduleTodoModal from './components/ScheduleTodoModal';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Menu, Book, Plus, Sparkles, ListTodo } from 'lucide-react'; // Import Sparkles
-import SettingsModal from './components/SettingsModal'; // Import SettingsModal
+import { Menu, Book, Plus, Sparkles, ListTodo } from 'lucide-react';
+import SettingsModal from './components/SettingsModal';
 
-import { db as localDB } from './db'; // Rename to avoid confusion
+import { db as localDB } from './db';
 import { firestoreService } from './firestoreService';
-import { askGemini, editSelection, extractTodos, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService'; // Import defaults
+import { askGemini, editSelection, extractTodos, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
+import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, isReady, tryRestoreSession } from './services/googleCalendarService';
 
 function DiaryApp() {
   const { currentUser, logout } = useAuth();
   const [entries, setEntries] = useState([]);
   const [trash, setTrash] = useState([]);
-  const [dayMetadata, setDayMetadata] = useState({}); // Store metadata by date string
+  const [dayMetadata, setDayMetadata] = useState({});
   const [isLoading, setIsLoading] = useState(true);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false); // Mobile menu state
-  const [todos, setTodos] = useState([]); // Todo State
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [todos, setTodos] = useState([]);
 
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -27,22 +30,126 @@ function DiaryApp() {
   const [systemPrompt, setSystemPrompt] = useState(localStorage.getItem('gemini_system_prompt') || DEFAULT_SYSTEM_PROMPT);
   const [editPrompt, setEditPrompt] = useState(localStorage.getItem('gemini_edit_prompt') || DEFAULT_EDIT_PROMPT);
 
-  // Global Gemini State for Page-Level Analysis
+  // Google Calendar State
+  const [googleClientId, setGoogleClientId] = useState(localStorage.getItem('google_client_id') || '');
+  const [googleApiKey, setGoogleApiKey] = useState(localStorage.getItem('google_api_key') || '');
+  const [isCalendarSignedIn, setIsCalendarSignedIn] = useState(false);
+  const [isCalendarConfigured, setIsCalendarConfigured] = useState(false);
+
+  // Todo Scheduling State
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+  const [todoToSchedule, setTodoToSchedule] = useState(null);
+  const [calendarActionDate, setCalendarActionDate] = useState(null);
+
+  // Global Gemini State
   const [globalGemini, setGlobalGemini] = useState({ loading: false, suggestion: null });
   const [globalChatHistory, setGlobalChatHistory] = useState([]);
 
-  const [view, setView] = useState('diary'); // 'diary' | 'trash'
+  const [view, setView] = useState('diary'); // 'diary' | 'trash' | 'todos'
 
   // Title Renaming State
   const [isRenamingTitle, setIsRenamingTitle] = useState(false);
   const [titleInputValue, setTitleInputValue] = useState('');
 
-  // If not logged in, show Auth screen
+  // -------------------------------------------------------------------------
+  // Google Calendar Initialization
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (googleClientId && googleApiKey) {
+      setIsCalendarConfigured(true);
+
+      const initGoogle = async () => {
+        try {
+          // Initialize GAPI
+          await initializeGapiClient(googleApiKey);
+
+          // Try to restore session
+          const restored = tryRestoreSession();
+          if (restored) {
+            setIsCalendarSignedIn(true);
+          }
+
+          // Initialize GIS
+          gisLoaded(googleClientId, (response) => {
+            // Token received
+            if (response && response.access_token) {
+              setIsCalendarSignedIn(true);
+              // Save token to localStorage for persistence
+              localStorage.setItem('google_calendar_token', JSON.stringify(response));
+            }
+          });
+
+        } catch (error) {
+          console.error("Error initializing Google scripts", error);
+        }
+      };
+
+      // Load scripts if not present (handled in index.html, but we wait for global objects)
+      if (window.gapi && window.google) {
+        initGoogle();
+      } else {
+        // Retry or wait - relying on script tags in index.html usually works if async defer.
+        // We can add a simple timeout or polling if needed, but index.html scripts usually load fast.
+        const interval = setInterval(() => {
+          if (window.gapi && window.google) {
+            clearInterval(interval);
+            initGoogle();
+          }
+        }, 500);
+      }
+    } else {
+      setIsCalendarConfigured(false);
+    }
+  }, [googleClientId, googleApiKey]);
+
+  const handleCalendarSignIn = () => {
+    handleAuthClick();
+    // We'll optimistically set signed in, or wait for the callback in gisLoaded
+    // Actually, handleAuthClick triggers the popup. The callback passed to gisLoaded handles the response.
+    // So we need to ensure local state updates when that callback fires.
+    // Modifying the callback in the effect above to update state.
+    // However, the token client is init'd once. 
+    // For this MVP, let's assume successful flow updates state via the callback we defined in useEffect (but we can't easily change that closure).
+    // A better way is to pass the callback to gisLoaded.
+    // I updated googleCalendarService to accept onTokenCallback.
+    // But I can't easily re-init the token client.
+    // Actually, google.accounts.oauth2.initTokenClient returns a client that we use.
+    // I should pass the state setter to the service wrapper? Or just expose the client setter.
+    // 
+    // HACK: I'll rely on a global event or simpler prop passing if I could.
+    // But since I control the service, let's just use the `gisLoaded` to pass the callback *once*.
+    // If I re-run the effect, it re-inits the token client, which is fine.
+  };
+
+  const handleCalendarSignOut = () => {
+    handleSignoutClick();
+    setIsCalendarSignedIn(false);
+  };
+
+  const handleScheduleTodo = (todo) => {
+    setTodoToSchedule(todo);
+    setIsScheduleModalOpen(true);
+  };
+
+  const handleConfirmSchedule = async (eventDetails) => {
+    try {
+      await addEvent(eventDetails);
+      // Ideally we show a success message or notification
+      alert("Event scheduled successfully!");
+    } catch (error) {
+      console.error("Failed to schedule event", error);
+      alert("Failed to schedule event. Please check your calendar connection.");
+    }
+  };
+
+
+  // -------------------------------------------------------------------------
+  // Data Loading
+  // -------------------------------------------------------------------------
   if (!currentUser) {
     return <Auth />;
   }
 
-  // Load data from Cloud (and migrate if needed)
   useEffect(() => {
     const initData = async () => {
       setIsLoading(true);
@@ -69,13 +176,11 @@ function DiaryApp() {
         let cloudTrash = await firestoreService.getTrash(currentUser.uid);
         let cloudMetadata = await firestoreService.getDayMetadata(currentUser.uid);
 
-        // Convert metadata array to object for easier lookup
         const metadataMap = {};
         cloudMetadata.forEach(m => {
           metadataMap[m.id] = m;
         });
 
-        // Default entry if absolutely nothing exists
         if (cloudEntries.length === 0 && cloudTrash.length === 0) {
           const newEntry = { date: new Date().toISOString(), content: '' };
           await firestoreService.saveEntry(currentUser.uid, newEntry);
@@ -84,7 +189,7 @@ function DiaryApp() {
 
         setEntries(cloudEntries);
         setTrash(cloudTrash);
-        setDayMetadata(metadataMap); // Load metadata into state
+        setDayMetadata(metadataMap);
 
         const cloudTodos = await firestoreService.getTodos(currentUser.uid);
         setTodos(cloudTodos);
@@ -117,30 +222,26 @@ function DiaryApp() {
     initData();
   }, [currentUser]);
 
-  // Group entries by groupId (or fallback to date string for legacy)
+  // Group entries
   const groupedEntries = useMemo(() => {
     const groups = {};
     entries.forEach(entry => {
-      // Use groupId if available, otherwise fallback to date string (legacy behavior)
       const groupId = entry.groupId || new Date(entry.date).toDateString();
       if (!groups[groupId]) groups[groupId] = [];
       groups[groupId].push(entry);
     });
-    // Sort entries within each group by time descending
     Object.keys(groups).forEach(key => {
       groups[key].sort((a, b) => new Date(b.date) - new Date(a.date));
     });
     return groups;
   }, [entries]);
 
-  // Default to the most recent group
-  // selectedDate is now acting as "selectedGroupId"
+
+  // Selected Date Management
   const [selectedDate, setSelectedDate] = useState(null);
 
-  // Set initial selected date once data is loaded
   useEffect(() => {
     if (!isLoading && !selectedDate) {
-      // Sort groups based on metadata (if available) or default to date descending (using the group ID if it's a date, or the latest entry in the group)
       const groupIds = Object.keys(groupedEntries).sort((a, b) => {
         const metaA = dayMetadata[a];
         const metaB = dayMetadata[b];
@@ -148,10 +249,6 @@ function DiaryApp() {
         if (metaA?.sortIndex !== undefined && metaB?.sortIndex !== undefined) {
           return metaA.sortIndex - metaB.sortIndex;
         }
-
-        // Fallback sort: try to parse as date (legacy) or use creation time of newest entry
-        // For new groups, the ID is an ISO string, so it sorts naturally as a date
-        // For legacy groups, it's "Fri Dec 01 2023", which also parses
         return new Date(b) - new Date(a);
       });
 
@@ -162,7 +259,6 @@ function DiaryApp() {
   }, [isLoading, groupedEntries, selectedDate, dayMetadata]);
 
   useEffect(() => {
-    // If selectedDate is not in groups (e.g. all deleted), reset to first available
     if (view === 'diary' && !isLoading) {
       if (selectedDate && !groupedEntries[selectedDate]) {
         const groupIds = Object.keys(groupedEntries).sort((a, b) => new Date(b) - new Date(a));
@@ -181,7 +277,7 @@ function DiaryApp() {
     setTrash(allTrash);
   };
 
-  const handleSaveSettings = async (newKey, newPrompt, newEditPrompt) => {
+  const handleSaveSettings = async (newKey, newPrompt, newEditPrompt, newClientId, newGoogleKey) => {
     setApiKey(newKey);
     setSystemPrompt(newPrompt);
     setEditPrompt(newEditPrompt);
@@ -189,7 +285,16 @@ function DiaryApp() {
     localStorage.setItem('gemini_system_prompt', newPrompt);
     localStorage.setItem('gemini_edit_prompt', newEditPrompt);
 
-    // Sync to Firestore
+    // Calendar Settings
+    if (newClientId !== undefined) {
+      setGoogleClientId(newClientId);
+      localStorage.setItem('google_client_id', newClientId);
+    }
+    if (newGoogleKey !== undefined) {
+      setGoogleApiKey(newGoogleKey);
+      localStorage.setItem('google_api_key', newGoogleKey);
+    }
+
     await firestoreService.saveUserSettings(currentUser.uid, {
       apiKey: newKey,
       systemPrompt: newPrompt,
@@ -198,55 +303,41 @@ function DiaryApp() {
   };
 
   const handleUpdateDayMetadata = async (groupId, newMetadata) => {
-    // Optimistic update
     setDayMetadata(prev => ({
       ...prev,
       [groupId]: { ...prev[groupId], ...newMetadata }
     }));
-
-    // Cloud update
     await firestoreService.saveDayMetadata(currentUser.uid, groupId, newMetadata);
   };
 
   const saveEntry = async (date, content, groupId) => {
-    // Optimistic update
     setEntries(prev => prev.map(e => e.date === date ? { ...e, content, groupId } : e));
-
-    // Cloud update
     await firestoreService.saveEntry(currentUser.uid, { date, content, groupId });
   };
 
-  // Left Sidebar Button: Creates a NEW Group
   const createNewGroup = async () => {
     const newDate = new Date().toISOString();
-    // Use the ISO string as the unique Group ID for this new session
     const newGroupId = newDate;
     const newEntry = { date: newDate, content: '', groupId: newGroupId };
-
     await firestoreService.saveEntry(currentUser.uid, newEntry);
     await refreshEntries();
-
     setSelectedDate(newGroupId);
     setView('diary');
   };
 
-  // Right Header Button: Adds to CURRENT Group
   const addToCurrentGroup = async () => {
-    if (!selectedDate) return createNewGroup(); // Fallback if nothing selected
-
+    if (!selectedDate) return createNewGroup();
     const newEntry = {
       date: new Date().toISOString(),
       content: '',
-      groupId: selectedDate // selectedDate is the current groupId
+      groupId: selectedDate
     };
-
     await firestoreService.saveEntry(currentUser.uid, newEntry);
     await refreshEntries();
   };
 
   const deleteEntry = async (entryDate) => {
     const entryToDelete = entries.find(e => e.date === entryDate);
-
     if (entryToDelete) {
       await firestoreService.deleteEntry(currentUser.uid, entryToDelete);
       await refreshEntries();
@@ -264,22 +355,24 @@ function DiaryApp() {
       await refreshEntries();
     }
 
-    // If we deleted the currently selected group, switch to another one
     if (selectedDate === groupId) {
-      setSelectedDate(null); // Effect will handle picking a new default
-    }
-    if (selectedDate === groupId) {
-      setSelectedDate(null); // Effect will handle picking a new default
+      setSelectedDate(null);
     }
   };
 
   // Todo Handlers
   const handleAddTodos = async (newTodos) => {
-    // Optimistic update
-    const todosWithIds = newTodos.map(t => ({ ...t, id: Date.now() + Math.random().toString(36).substr(2, 9) + "-" + Math.random().toString(36).substr(2, 9), created: new Date().toISOString() }));
-    setTodos(prev => [...prev, ...todosWithIds]);
+    // Generate IDs and sortIndices (use timestamp for default sort, descending or ascending? DndKit usually easier with indices)
+    // We'll use a large number for new items to put them at top, or just use current time.
+    const now = Date.now();
+    const todosWithIds = newTodos.map((t, idx) => ({
+      ...t,
+      id: (now + idx) + "-" + Math.random().toString(36).substr(2, 9),
+      created: new Date().toISOString(),
+      sortIndex: now + idx // Simple default sort order
+    }));
 
-    // Cloud update
+    setTodos(prev => [...prev, ...todosWithIds]);
     for (const todo of todosWithIds) {
       await firestoreService.saveTodo(currentUser.uid, todo);
     }
@@ -295,10 +388,32 @@ function DiaryApp() {
     await firestoreService.deleteTodo(currentUser.uid, todoId);
   };
 
+  const handleUpdateTodo = async (todoId, updates) => {
+    setTodos(prev => prev.map(t => t.id === todoId ? { ...t, ...updates } : t));
+    await firestoreService.updateTodo(currentUser.uid, todoId, updates);
+  };
+
+  const handleReorderTodos = async (updates) => {
+    // updates: array of { id, changes: { sortIndex, category... } }
+    // Optimistic update
+    setTodos(prev => {
+      const newTodos = [...prev];
+      updates.forEach(({ id, changes }) => {
+        const idx = newTodos.findIndex(t => t.id === id);
+        if (idx > -1) {
+          newTodos[idx] = { ...newTodos[idx], ...changes };
+        }
+      });
+      return newTodos;
+    });
+
+    // Batch update to firestore
+    await firestoreService.updateTodosOrder(currentUser.uid, updates);
+  };
 
   const currentDayEntries = groupedEntries[selectedDate] || [];
 
-  // Page-Level Gemini Handlers
+  // Gemini Handlers
   const handleAskPage = () => {
     if (currentDayEntries.length === 0) return;
     setGlobalGemini({ loading: false, suggestion: null, isWaitingForPrompt: true });
@@ -320,7 +435,6 @@ function DiaryApp() {
     }
 
     try {
-      // We send this as the initial user prompt
       const suggestion = await askGemini(prompt, [], apiKey, systemPrompt);
       setGlobalGemini({ loading: false, suggestion, isWaitingForPrompt: false });
 
@@ -330,16 +444,11 @@ function DiaryApp() {
           { role: 'model', content: suggestion.content }
         ]);
       } else {
-        // If default analysis, we might just show the result, or show a generic prompt in history
-        // Let's mimic what we did before: show the initial prompt (or maybe just the Question?)
-        // If we show the HUGE context prompt, it's ugly.
-        // Let's just show "Analyze my day" as the user prompt in history if it was default.
         setGlobalChatHistory([
           { role: 'user', content: "Analyze my day" },
           { role: 'model', content: suggestion.content }
         ]);
       }
-
     } catch (error) {
       console.error("Error calling Gemini API:", error);
       setGlobalGemini({
@@ -416,78 +525,38 @@ function DiaryApp() {
     if (!globalGemini.suggestion) return;
 
     let textToSave = '';
-
-    // If we have history, format it as a conversation
     if (globalChatHistory.length > 0) {
-      // We want to capture the full context of the analysis
-      // The first message in history is the prompt "Here are my diary entries..." which might be too long/repetitive to save?
-      // Actually, the user probably just wants the *Analysis* (the response).
-      // But if they had a back-and-forth, they might want that too.
-
-      // Let's format it similarly to the DiaryEntry "Add to Note"
-      // But since this is a NEW note, we might want a header.
-
       textToSave = `# Gemini Analysis\n\n`;
-
-      // Filter out the initial huge prompt if it's just raw data dump? 
-      // The initial prompt is: "Here are my diary entries..."
-      // Maybe we just save the Model's response if it's the first turn?
-
       globalChatHistory.forEach(msg => {
-        // Skip the very first user message if it starts with "Here are my diary entries" to avoid clutter
         if (msg.role === 'user' && msg.content.startsWith("Here are my diary entries")) {
           return;
         }
-
         if (msg.role === 'user') {
           textToSave += `> **User:** ${msg.content}\n\n`;
         } else {
           textToSave += `> **Gemini:** ${msg.content}\n\n`;
         }
       });
-
-      // Add the current suggestion if it's not in history yet (it usually isn't added to history until next reply)
-      // Wait, handleGlobalReply adds to history. handleAskPage adds to history.
-      // Let's check handleAskPage:
-      // setGlobalChatHistory([ { role: 'user', content: prompt }, { role: 'model', content: suggestion.content } ]);
-      // So the current suggestion IS in history?
-      // handleAskPage sets history WITH the suggestion.
-      // handleGlobalReply sets history THEN asks, then appends result.
-      // So `globalChatHistory` should be up to date? 
-      // Actually handleGlobalReply appends the *new* model response to history at the end.
-
-      // But `globalGemini.suggestion` is the *latest* response.
-      // If we just use `globalChatHistory`, we should be good.
-
-      // However, `handleAskPage` sets history:
-      // setGlobalChatHistory([ { role: 'user', content: prompt }, { role: 'model', content: suggestion.content } ]);
-
-      // So yes, history contains everything.
     } else {
-      // Should not happen if handleAskPage sets history, but fallback:
       textToSave = `> **Gemini:** ${globalGemini.suggestion.content}`;
     }
 
-    // Create a new entry with this content
     const newEntry = {
       date: new Date().toISOString(),
       content: textToSave,
-      groupId: selectedDate, // Add to current group
-      type: 'analysis' // Mark as analysis to pin to bottom
+      groupId: selectedDate,
+      type: 'analysis'
     };
 
     await firestoreService.saveEntry(currentUser.uid, newEntry);
     await refreshEntries();
-
-    // Close the panel? Or just show success?
-    // Let's close it to indicate completion
     setGlobalGemini({ loading: false, suggestion: null });
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row h-screen overflow-hidden">
       {/* Mobile Header */}
-      <div className="md:hidden bg-white border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-20">
+      <div className="md:hidden bg-white border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-20 flex-shrink-0">
         <div className="flex items-center gap-2 text-slate-800 font-bold text-lg">
           <Book className="text-indigo-600" size={24} />
           <span>JoesDiary</span>
@@ -502,13 +571,13 @@ function DiaryApp() {
 
       <Sidebar
         groupedEntries={groupedEntries}
-        dayMetadata={dayMetadata} // Pass metadata
-        onUpdateDayMetadata={handleUpdateDayMetadata} // Pass update handler
+        dayMetadata={dayMetadata}
+        onUpdateDayMetadata={handleUpdateDayMetadata}
         selectedDate={selectedDate}
         onSelectDate={(date) => {
           setSelectedDate(date);
           setView('diary');
-          setGlobalGemini({ loading: false, suggestion: null }); // Reset global gemini on date change
+          setGlobalGemini({ loading: false, suggestion: null });
         }}
         onAddEntry={createNewGroup}
         onDeleteDay={deleteGroup}
@@ -520,185 +589,209 @@ function DiaryApp() {
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
         onSettings={() => setIsSettingsOpen(true)}
-        // Todo Props
         todos={todos}
         onToggleTodo={handleToggleTodo}
         onDeleteTodo={handleDeleteTodo}
       />
 
-      <main className="flex-1 md:ml-64 p-4 md:p-12 lg:p-16 overflow-y-auto h-[calc(100vh-65px)] md:h-screen">
-        <div className="max-w-3xl mx-auto">
-          {view === 'todos' ? (
-            <div className="pb-20">
-              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8 border-b border-slate-200 pb-4 flex items-center gap-3">
-                <ListTodo className="text-indigo-600" size={32} />
-                <span>Todos</span>
-                <span className="text-sm font-normal text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{todos.filter(t => !t.completed).length} active</span>
-              </h1>
-
-              {/* Use TodoSection but with full width styling if possible, or just standard */}
-              <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
-                <TodoSection
-                  todos={todos}
-                  onToggle={handleToggleTodo}
-                  onDelete={handleDeleteTodo}
-                  isPage={true}
-                />
+      <main className="flex-1 md:ml-64 flex overflow-hidden">
+        {/* Main Content Area */}
+        <div className="flex-1 overflow-y-auto p-4 md:p-12 lg:p-16">
+          <div className="max-w-3xl mx-auto">
+            {view === 'todos' ? (
+              <div className="pb-20">
+                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8 border-b border-slate-200 pb-4 flex items-center gap-3">
+                  <ListTodo className="text-indigo-600" size={32} />
+                  <span>Todos</span>
+                  <span className="text-sm font-normal text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{todos.filter(t => !t.completed).length} active</span>
+                </h1>
+                <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-sm">
+                  <TodoSection
+                    todos={todos}
+                    onToggle={handleToggleTodo}
+                    onDelete={handleDeleteTodo}
+                    onSchedule={handleScheduleTodo}
+                    onUpdate={handleUpdateTodo}
+                    onReorder={handleReorderTodos}
+                    onAdd={(text, category) => handleAddTodos([{ text, priority: 'medium', completed: false, category: category || 'personal', sortIndex: Date.now() }])}
+                    isPage={true}
+                  />
+                </div>
               </div>
-            </div>
-          ) : view === 'trash' ? (
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8 border-b border-slate-200 pb-4 flex items-center gap-3">
-                <span className="text-slate-400">Trash</span>
-                <span className="text-sm font-normal text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{trash.length} items</span>
-              </h1>
-              {trash.length > 0 ? (
-                <div className="space-y-6">
-                  {trash.map((entry) => (
-                    <div key={entry.date} className="bg-white rounded-xl p-6 border border-slate-200 opacity-75 hover:opacity-100 transition-opacity">
-                      <div className="text-sm text-indigo-600 font-medium mb-2">
-                        {new Date(entry.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+            ) : view === 'trash' ? (
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8 border-b border-slate-200 pb-4 flex items-center gap-3">
+                  <span className="text-slate-400">Trash</span>
+                  <span className="text-sm font-normal text-slate-500 bg-slate-100 px-3 py-1 rounded-full">{trash.length} items</span>
+                </h1>
+                {trash.length > 0 ? (
+                  <div className="space-y-6">
+                    {trash.map((entry) => (
+                      <div key={entry.date} className="bg-white rounded-xl p-6 border border-slate-200 opacity-75 hover:opacity-100 transition-opacity">
+                        <div className="text-sm text-indigo-600 font-medium mb-2">
+                          {new Date(entry.date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                        </div>
+                        <p className="text-slate-600 whitespace-pre-wrap">{entry.content}</p>
                       </div>
-                      <p className="text-slate-600 whitespace-pre-wrap">{entry.content}</p>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center text-slate-400 mt-20">
+                    <p>Trash is empty.</p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              currentDayEntries.length > 0 ? (
+                <div className="pb-20">
+                  <div className="flex items-center justify-between mb-6 md:mb-8 border-b border-slate-200 pb-4">
+                    <div className="flex-1 mr-4">
+                      {isRenamingTitle ? (
+                        <input
+                          type="text"
+                          value={titleInputValue}
+                          onChange={(e) => setTitleInputValue(e.target.value)}
+                          onBlur={() => {
+                            handleUpdateDayMetadata(selectedDate, { customTitle: titleInputValue });
+                            setIsRenamingTitle(false);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              handleUpdateDayMetadata(selectedDate, { customTitle: titleInputValue });
+                              setIsRenamingTitle(false);
+                            } else if (e.key === 'Escape') {
+                              setIsRenamingTitle(false);
+                              setTitleInputValue(dayMetadata[selectedDate]?.customTitle || '');
+                            }
+                          }}
+                          autoFocus
+                          className="text-2xl md:text-3xl font-bold text-slate-900 w-full bg-transparent border-b-2 border-indigo-500 outline-none pb-1"
+                        />
+                      ) : (
+                        <h1
+                          className="text-2xl md:text-3xl font-bold text-slate-900 cursor-pointer hover:text-indigo-600 transition-colors flex items-center gap-2 group"
+                          onClick={() => {
+                            setTitleInputValue(dayMetadata[selectedDate]?.customTitle || '');
+                            setIsRenamingTitle(true);
+                          }}
+                          title="Click to rename"
+                        >
+                          {dayMetadata[selectedDate]?.customTitle || new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                          <span className="opacity-0 group-hover:opacity-100 text-slate-400 text-sm font-normal">
+                            (Rename)
+                          </span>
+                        </h1>
+                      )}
                     </div>
-                  ))}
+                    <button
+                      onClick={addToCurrentGroup}
+                      className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 text-sm font-medium whitespace-nowrap"
+                    >
+                      <Plus size={18} />
+                      <span className="hidden sm:inline">New Note</span>
+                    </button>
+                  </div>
+                  <div className="space-y-8">
+                    {currentDayEntries
+                      .filter(e => e.type !== 'analysis')
+                      .map((entry, index) => (
+                        <DiaryEntry
+                          key={entry.date}
+                          date={entry.date}
+                          initialContent={entry.content}
+                          onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
+                          onDelete={deleteEntry}
+                          showDateHeader={false}
+                          apiKey={apiKey}
+                          systemPrompt={systemPrompt}
+                          editPrompt={editPrompt}
+                          onAddTodos={handleAddTodos}
+                        />
+                      ))}
+
+                    {currentDayEntries
+                      .filter(e => e.type === 'analysis')
+                      .map((entry, index) => (
+                        <DiaryEntry
+                          key={entry.date}
+                          date={entry.date}
+                          initialContent={entry.content}
+                          onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
+                          onDelete={deleteEntry}
+                          showDateHeader={false}
+                          isAnalysis={true}
+                          apiKey={apiKey}
+                          systemPrompt={systemPrompt}
+                          editPrompt={editPrompt}
+                          onAddTodos={handleAddTodos}
+                        />
+                      ))}
+                  </div>
+
+                  {/* Page Level Gemini Action */}
+                  <div className="mt-12 border-t border-slate-100 pt-8">
+                    {!globalGemini.suggestion && !globalGemini.loading && !globalGemini.isWaitingForPrompt ? (
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <button
+                          onClick={handleAskPage}
+                          className="flex-1 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl transition-colors font-medium border border-indigo-200 border-dashed"
+                        >
+                          <Sparkles size={18} />
+                          <span>Ask Gemini about today</span>
+                        </button>
+                        <button
+                          onClick={handleExtractTodosPage}
+                          className="flex-shrink-0 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 px-6 rounded-xl transition-colors font-medium border border-indigo-200 border-dashed"
+                        >
+                          <ListTodo size={18} />
+                          <span>Create Todos from Today</span>
+                        </button>
+                      </div>
+                    ) : (
+                      <GeminiPanel
+                        isLoading={globalGemini.loading}
+                        suggestion={globalGemini.suggestion}
+                        isWaitingForPrompt={globalGemini.isWaitingForPrompt}
+                        onAsk={handleConfirmAskPage}
+                        onClose={() => setGlobalGemini({ loading: false, suggestion: null, isWaitingForPrompt: false })}
+                        onReply={handleGlobalReply}
+                        onAddToNote={handleSaveGlobalAnalysis}
+                        onAddTodos={handleAddTodos}
+                        saveLabel="Save as Note"
+                      />
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="text-center text-slate-400 mt-20">
-                  <p>Trash is empty.</p>
+                  <p>Select a day or create a new entry.</p>
                 </div>
-              )}
-            </div>
-          ) : (
-            currentDayEntries.length > 0 ? (
-              <div className="pb-20"> {/* Add padding bottom for the panel */}
-                <div className="flex items-center justify-between mb-6 md:mb-8 border-b border-slate-200 pb-4">
-                  <div className="flex-1 mr-4">
-                    {isRenamingTitle ? (
-                      <input
-                        type="text"
-                        value={titleInputValue}
-                        onChange={(e) => setTitleInputValue(e.target.value)}
-                        onBlur={() => {
-                          handleUpdateDayMetadata(selectedDate, { customTitle: titleInputValue });
-                          setIsRenamingTitle(false);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleUpdateDayMetadata(selectedDate, { customTitle: titleInputValue });
-                            setIsRenamingTitle(false);
-                          } else if (e.key === 'Escape') {
-                            setIsRenamingTitle(false);
-                            setTitleInputValue(dayMetadata[selectedDate]?.customTitle || '');
-                          }
-                        }}
-                        autoFocus
-                        className="text-2xl md:text-3xl font-bold text-slate-900 w-full bg-transparent border-b-2 border-indigo-500 outline-none pb-1"
-                      />
-                    ) : (
-                      <h1
-                        className="text-2xl md:text-3xl font-bold text-slate-900 cursor-pointer hover:text-indigo-600 transition-colors flex items-center gap-2 group"
-                        onClick={() => {
-                          setTitleInputValue(dayMetadata[selectedDate]?.customTitle || '');
-                          setIsRenamingTitle(true);
-                        }}
-                        title="Click to rename"
-                      >
-                        {dayMetadata[selectedDate]?.customTitle || new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-                        <span className="opacity-0 group-hover:opacity-100 text-slate-400 text-sm font-normal">
-                          (Rename)
-                        </span>
-                      </h1>
-                    )}
-                  </div>
-                  <button
-                    onClick={addToCurrentGroup}
-                    className="flex items-center gap-2 bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-lg transition-all shadow-md hover:shadow-lg active:scale-95 text-sm font-medium whitespace-nowrap"
-                  >
-                    <Plus size={18} />
-                    <span className="hidden sm:inline">New Note</span>
-                  </button>
-                </div>
-                <div className="space-y-8">
-                  {currentDayEntries
-                    .filter(e => e.type !== 'analysis')
-                    .map((entry, index) => (
-                      <DiaryEntry
-                        key={entry.date}
-                        date={entry.date}
-                        initialContent={entry.content}
-                        onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
-                        onDelete={deleteEntry}
-                        showDateHeader={false} // We show the main date at the top
-                        apiKey={apiKey} // Pass API key
-                        systemPrompt={systemPrompt} // Pass system prompt
-                        editPrompt={editPrompt} // Pass edit prompt
-                        onAddTodos={handleAddTodos} // Pass todo handler
-                      />
-                    ))}
+              )
+            )}
+          </div>
+        </div>
 
-                  {/* Render Analysis Entries at the bottom */}
-                  {currentDayEntries
-                    .filter(e => e.type === 'analysis')
-                    .map((entry, index) => (
-                      <DiaryEntry
-                        key={entry.date}
-                        date={entry.date}
-                        initialContent={entry.content}
-                        onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
-                        onDelete={deleteEntry}
-                        showDateHeader={false}
-                        isAnalysis={true} // Optional: Pass a prop if we want special styling
-                        apiKey={apiKey}
-                        systemPrompt={systemPrompt}
-                        editPrompt={editPrompt}
-                        onAddTodos={handleAddTodos}
-                      />
-                    ))}
-                </div>
-
-                {/* Page Level Gemini Action */}
-                <div className="mt-12 border-t border-slate-100 pt-8">
-                  {!globalGemini.suggestion && !globalGemini.loading && !globalGemini.isWaitingForPrompt ? (
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <button
-                        onClick={handleAskPage}
-                        className="flex-1 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 rounded-xl transition-colors font-medium border border-indigo-200 border-dashed"
-                      >
-                        <Sparkles size={18} />
-                        <span>Ask Gemini about today</span>
-                      </button>
-                      <button
-                        onClick={handleExtractTodosPage}
-                        className="flex-shrink-0 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 px-6 rounded-xl transition-colors font-medium border border-indigo-200 border-dashed"
-                      >
-                        <ListTodo size={18} />
-                        <span>Create Todos from Today</span>
-                      </button>
-                    </div>
-                  ) : (
-                    <GeminiPanel
-                      isLoading={globalGemini.loading}
-                      suggestion={globalGemini.suggestion}
-                      isWaitingForPrompt={globalGemini.isWaitingForPrompt}
-                      onAsk={handleConfirmAskPage}
-                      onClose={() => setGlobalGemini({ loading: false, suggestion: null, isWaitingForPrompt: false })}
-                      onReply={handleGlobalReply}
-                      onAddToNote={handleSaveGlobalAnalysis}
-                      onAddTodos={handleAddTodos}
-                      saveLabel="Save as Note"
-                    />
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="text-center text-slate-400 mt-20">
-                <p>Select a day or create a new entry.</p>
-              </div>
-            )
-          )}
+        {/* Calendar Sidebar - Right Column */}
+        {/* Only show on large screens or via toggle (future) for now stick to XL */}
+        <div className="w-[350px] border-l border-slate-200 bg-white hidden xl:flex flex-col">
+          <CalendarPanel
+            isSignedIn={isCalendarSignedIn}
+            onSignIn={handleCalendarSignIn}
+            onSignOut={handleCalendarSignOut}
+            isConfigured={isCalendarConfigured}
+            onAddEvent={(date) => {
+              setTodoToSchedule(null); // Clear todo context
+              // We need a state for the specific date clicked in calendar
+              // Reuse 'selectedDate' prop of modal? Or add a new one?
+              // The Modal currently takes 'initialDate'.
+              // Let's add a state 'calendarActionDate'
+              setCalendarActionDate(date);
+              setIsScheduleModalOpen(true);
+            }}
+          />
         </div>
       </main>
+
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
@@ -706,6 +799,19 @@ function DiaryApp() {
         initialApiKey={apiKey}
         initialSystemPrompt={systemPrompt}
         initialEditPrompt={editPrompt}
+        initialGoogleClientId={googleClientId}
+        initialGoogleApiKey={googleApiKey}
+      />
+
+      <ScheduleTodoModal
+        isOpen={isScheduleModalOpen}
+        onClose={() => {
+          setIsScheduleModalOpen(false);
+          setCalendarActionDate(null);
+        }}
+        onSchedule={handleConfirmSchedule}
+        todoTitle={todoToSchedule ? todoToSchedule.text : ''}
+        initialDate={calendarActionDate || selectedDate} // prioritize calendar action, fallback to diary date
       />
     </div>
   );

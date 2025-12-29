@@ -7,10 +7,13 @@ import {
     deleteDoc,
     query,
     orderBy,
-    writeBatch
+    writeBatch,
+    addDoc,
+    updateDoc
 } from 'firebase/firestore';
 
 export const firestoreService = {
+    // ... existing entry/trash/metadata methods (lines 14-124) ...
     async getEntries(userId) {
         const q = query(collection(db, 'users', userId, 'entries'));
         const snapshot = await getDocs(q);
@@ -142,6 +145,16 @@ export const firestoreService = {
     async updateTodo(uid, todoId, updates) {
         const todoRef = doc(db, 'users', uid, 'todos', todoId);
         await updateDoc(todoRef, updates);
+    },
+
+    async updateTodosOrder(uid, updates) {
+        // updates is array of { id, changes }
+        const batch = writeBatch(db);
+        updates.forEach(({ id, changes }) => {
+            const ref = doc(db, 'users', uid, 'todos', id);
+            batch.update(ref, changes);
+        });
+        await batch.commit();
     },
 
     async deleteTodo(uid, todoId) {

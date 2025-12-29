@@ -1,23 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { X, Save, Key, MessageSquare } from 'lucide-react';
+import { X, Save, Key, MessageSquare, Calendar } from 'lucide-react';
 
-const SettingsModal = ({ isOpen, onClose, onSave, initialApiKey, initialSystemPrompt, initialEditPrompt }) => {
+const SettingsModal = ({
+    isOpen,
+    onClose,
+    onSave,
+    initialApiKey,
+    initialSystemPrompt,
+    initialEditPrompt,
+    initialGoogleClientId,
+    initialGoogleApiKey
+}) => {
     const [apiKey, setApiKey] = useState(initialApiKey || '');
     const [systemPrompt, setSystemPrompt] = useState(initialSystemPrompt || '');
     const [editPrompt, setEditPrompt] = useState(initialEditPrompt || '');
+    const [googleClientId, setGoogleClientId] = useState(initialGoogleClientId || '');
+    const [googleApiKey, setGoogleApiKey] = useState(initialGoogleApiKey || '');
 
     useEffect(() => {
         if (isOpen) {
             setApiKey(initialApiKey || '');
             setSystemPrompt(initialSystemPrompt || '');
             setEditPrompt(initialEditPrompt || '');
+            setGoogleClientId(initialGoogleClientId || '');
+            setGoogleApiKey(initialGoogleApiKey || '');
         }
-    }, [isOpen, initialApiKey, initialSystemPrompt, initialEditPrompt]);
+    }, [isOpen, initialApiKey, initialSystemPrompt, initialEditPrompt, initialGoogleClientId, initialGoogleApiKey]);
 
     if (!isOpen) return null;
 
     const handleSave = () => {
-        onSave(apiKey, systemPrompt, editPrompt);
+        onSave(apiKey, systemPrompt, editPrompt, googleClientId, googleApiKey);
         onClose();
     };
 
@@ -36,60 +49,101 @@ const SettingsModal = ({ isOpen, onClose, onSave, initialApiKey, initialSystemPr
                 </div>
 
                 {/* Content */}
-                <div className="p-6 space-y-6">
+                <div className="p-6 space-y-8">
 
-                    {/* API Key Section */}
-                    <div className="space-y-3">
-                        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                            <Key size={16} className="text-indigo-600" />
-                            Gemini API Key
-                        </label>
-                        <input
-                            type="password"
-                            value={apiKey}
-                            onChange={(e) => setApiKey(e.target.value)}
-                            placeholder="Enter your Gemini API Key"
-                            className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 font-mono text-sm"
-                        />
-                        <p className="text-xs text-slate-500">
-                            Your key is stored locally in your browser.
-                        </p>
+                    {/* Gemini Section */}
+                    <div className="space-y-6">
+                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Gemini Configuration</h3>
+
+                        {/* API Key Section */}
+                        <div className="space-y-3">
+                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                <Key size={16} className="text-indigo-600" />
+                                Gemini API Key
+                            </label>
+                            <input
+                                type="password"
+                                value={apiKey}
+                                onChange={(e) => setApiKey(e.target.value)}
+                                placeholder="Enter your Gemini API Key"
+                                className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 font-mono text-sm"
+                            />
+                            <p className="text-xs text-slate-500">
+                                Your key is stored locally in your browser.
+                            </p>
+                        </div>
+
+                        {/* System Prompt Section */}
+                        <div className="space-y-3">
+                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                <MessageSquare size={16} className="text-indigo-600" />
+                                System Prompt
+                            </label>
+                            <textarea
+                                value={systemPrompt}
+                                onChange={(e) => setSystemPrompt(e.target.value)}
+                                placeholder="Define how Gemini should behave..."
+                                rows={4}
+                                className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 text-sm resize-none leading-relaxed"
+                            />
+                        </div>
+
+                        {/* Edit Prompt Section */}
+                        <div className="space-y-3">
+                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                <MessageSquare size={16} className="text-indigo-600" />
+                                Edit Prompt
+                            </label>
+                            <textarea
+                                value={editPrompt}
+                                onChange={(e) => setEditPrompt(e.target.value)}
+                                placeholder="Define how Gemini should edit text..."
+                                rows={4}
+                                className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 text-sm resize-none leading-relaxed"
+                            />
+                            <p className="text-xs text-slate-500">
+                                Template for text editing. Use <code>{`{{selection}}`}</code> and <code>{`{{instruction}}`}</code> placeholders.
+                            </p>
+                        </div>
                     </div>
 
-                    {/* System Prompt Section */}
-                    <div className="space-y-3">
-                        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                            <MessageSquare size={16} className="text-indigo-600" />
-                            System Prompt
-                        </label>
-                        <textarea
-                            value={systemPrompt}
-                            onChange={(e) => setSystemPrompt(e.target.value)}
-                            placeholder="Define how Gemini should behave..."
-                            rows={6}
-                            className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 text-sm resize-none leading-relaxed"
-                        />
-                        <p className="text-xs text-slate-500">
-                            Customize Gemini's personality and instructions.
-                        </p>
-                    </div>
+                    {/* Google Calendar Section */}
+                    <div className="space-y-6">
+                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Google Calendar Integration</h3>
 
-                    {/* Edit Prompt Section */}
-                    <div className="space-y-3">
-                        <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                            <MessageSquare size={16} className="text-indigo-600" />
-                            Edit Prompt
-                        </label>
-                        <textarea
-                            value={editPrompt}
-                            onChange={(e) => setEditPrompt(e.target.value)}
-                            placeholder="Define how Gemini should edit text..."
-                            rows={6}
-                            className="w-full px-4 py-3 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 text-sm resize-none leading-relaxed"
-                        />
-                        <p className="text-xs text-slate-500">
-                            Template for text editing. Use <code>{`{{selection}}`}</code> and <code>{`{{instruction}}`}</code> placeholders.
-                        </p>
+                        <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-sm text-blue-800">
+                            You need a Google Cloud Project with the <strong>Google Calendar API</strong> enabled.
+                        </div>
+
+                        {/* Client ID */}
+                        <div className="space-y-3">
+                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                <Calendar size={16} className="text-indigo-600" />
+                                Google Client ID
+                            </label>
+                            <input
+                                type="text"
+                                value={googleClientId}
+                                onChange={(e) => setGoogleClientId(e.target.value)}
+                                placeholder="Enter your Google Client ID"
+                                className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 font-mono text-sm"
+                            />
+                        </div>
+
+                        {/* API Key */}
+                        <div className="space-y-3">
+                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                <Key size={16} className="text-indigo-600" />
+                                Google API Key
+                            </label>
+                            <input
+                                type="password"
+                                value={googleApiKey}
+                                onChange={(e) => setGoogleApiKey(e.target.value)}
+                                placeholder="Enter your Google API Key"
+                                className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 font-mono text-sm"
+                            />
+                        </div>
                     </div>
 
                 </div>
