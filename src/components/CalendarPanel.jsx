@@ -17,8 +17,14 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
             const fetchedEvents = await listEventsForDay(currentDate);
             setEvents(fetchedEvents);
         } catch (err) {
-            console.error(err);
-            setError("Failed to load events. Please try again.");
+            console.error("Calendar fetch error:", err);
+            // Check for 401 Unauthorized
+            if (err.status === 401 || (err.result && err.result.error && err.result.error.code === 401)) {
+                setError("Session expired. Please sign in again.");
+                if (onSignOut) onSignOut(); // Auto-logout from calendar
+            } else {
+                setError("Failed to load events. Please try again.");
+            }
         } finally {
             setIsLoading(false);
         }

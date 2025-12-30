@@ -76,6 +76,9 @@ function DiaryApp() {
               setIsCalendarSignedIn(true);
               // Save token to localStorage for persistence
               localStorage.setItem('google_calendar_token', JSON.stringify(response));
+              // Save expiry (expires_in is in seconds)
+              const expiryTime = Date.now() + (response.expires_in * 1000);
+              localStorage.setItem('google_calendar_token_expiry', expiryTime.toString());
             }
           });
 

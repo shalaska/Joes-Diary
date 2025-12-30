@@ -53,7 +53,9 @@ export function gisLoaded(clientId, onTokenCallback) {
  */
 export function handleAuthClick() {
     if (!tokenClient) return;
-    tokenClient.requestAccessToken({ prompt: 'consent' });
+    // prompt: '' will skip the consent screen if the user has already granted access
+    // and is signed into Google. It will still open a popup but it should close immediately.
+    tokenClient.requestAccessToken({ prompt: '' });
 }
 
 /**
@@ -74,7 +76,20 @@ export function handleSignoutClick() {
  */
 export function tryRestoreSession() {
     const tokenString = localStorage.getItem('google_calendar_token');
+    const expiryString = localStorage.getItem('google_calendar_token_expiry');
+
     if (tokenString) {
+        // Check expiry if available
+        if (expiryString) {
+            const expiryTime = parseInt(expiryString, 10);
+            if (Date.now() >= expiryTime) {
+                console.warn("Stored Google Calendar token has expired.");
+                localStorage.removeItem('google_calendar_token');
+                localStorage.removeItem('google_calendar_token_expiry');
+                return false;
+            }
+        }
+
         try {
             const token = JSON.parse(tokenString);
             gapi.client.setToken(token);
@@ -82,6 +97,7 @@ export function tryRestoreSession() {
         } catch (e) {
             console.error("Invalid stored token", e);
             localStorage.removeItem('google_calendar_token');
+            localStorage.removeItem('google_calendar_token_expiry');
             return false;
         }
     }
