@@ -369,7 +369,9 @@ function DiaryApp() {
     // We'll use a large number for new items to put them at top, or just use current time.
     const now = Date.now();
     const todosWithIds = newTodos.map((t, idx) => ({
-      ...t,
+      text: t.text,
+      priority: t.priority || 'medium',
+      completed: t.completed || false,
       id: (now + idx) + "-" + Math.random().toString(36).substr(2, 9),
       created: new Date().toISOString(),
       sortIndex: now + idx // Simple default sort order
@@ -391,13 +393,8 @@ function DiaryApp() {
     await firestoreService.deleteTodo(currentUser.uid, todoId);
   };
 
-  const handleUpdateTodo = async (todoId, updates) => {
-    setTodos(prev => prev.map(t => t.id === todoId ? { ...t, ...updates } : t));
-    await firestoreService.updateTodo(currentUser.uid, todoId, updates);
-  };
-
   const handleReorderTodos = async (updates) => {
-    // updates: array of { id, changes: { sortIndex, category... } }
+    // updates: array of { id, changes: { sortIndex } }
     // Optimistic update
     setTodos(prev => {
       const newTodos = [...prev];
@@ -614,9 +611,8 @@ function DiaryApp() {
                     onToggle={handleToggleTodo}
                     onDelete={handleDeleteTodo}
                     onSchedule={handleScheduleTodo}
-                    onUpdate={handleUpdateTodo}
                     onReorder={handleReorderTodos}
-                    onAdd={(text, category) => handleAddTodos([{ text, priority: 'medium', completed: false, category: category || 'personal', sortIndex: Date.now() }])}
+                    onAdd={(text) => handleAddTodos([{ text, priority: 'medium', completed: false, sortIndex: Date.now() }])}
                     isPage={true}
                   />
                 </div>

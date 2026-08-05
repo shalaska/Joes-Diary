@@ -7,7 +7,6 @@ import {
     useSensor,
     useSensors,
     DragOverlay,
-    useDroppable,
 } from '@dnd-kit/core';
 import {
     SortableContext,
@@ -17,7 +16,7 @@ import {
     arrayMove,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, Trash2, ChevronDown, ChevronRight, ListTodo, Calendar, Plus, Briefcase, User } from 'lucide-react';
+import { Check, Trash2, ChevronDown, ChevronRight, ListTodo, Calendar, Plus } from 'lucide-react';
 
 // --- Sortable Item Component ---
 function SortableTodoItem({ todo, onToggle, onDelete, onSchedule }) {
@@ -85,21 +84,10 @@ function SortableTodoItem({ todo, onToggle, onDelete, onSchedule }) {
     );
 }
 
-// --- Droppable Container Component ---
-function DroppableContainer({ id, children, className }) {
-    const { setNodeRef } = useDroppable({ id });
-    return (
-        <div ref={setNodeRef} className={className}>
-            {children}
-        </div>
-    );
-}
-
 // --- Main Component ---
-const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onUpdate, onReorder, isPage = false }) => {
+const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onReorder, isPage = false }) => {
     const [isExpanded, setIsExpanded] = useState(true);
     const [newTodo, setNewTodo] = useState('');
-    const [newTodoCategory, setNewTodoCategory] = useState('work'); // Default is now Work
     const [activeId, setActiveId] = useState(null);
 
     const sensors = useSensors(
@@ -123,26 +111,16 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onUpdate, o
 
     const completedTodos = todos.filter(t => t.completed);
 
-    const workTodos = activeTodos.filter(t => t.category === 'work');
-    const personalTodos = activeTodos.filter(t => t.category !== 'work'); // Default to personal
-
     const handleSubmit = (e) => {
         e.preventDefault();
         if (newTodo.trim() && onAdd) {
-            onAdd(newTodo.trim(), newTodoCategory);
+            onAdd(newTodo.trim());
             setNewTodo('');
         }
     };
 
     const handleDragStart = (event) => {
         setActiveId(event.active.id);
-    };
-
-    const findContainer = (id) => {
-        if (id === 'container-work') return 'work';
-        if (id === 'container-personal') return 'personal';
-        const item = activeTodos.find(t => t.id === id);
-        return item ? (item.category === 'work' ? 'work' : 'personal') : null;
     };
 
     const handleDragEnd = (event) => {
@@ -155,58 +133,20 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onUpdate, o
             return;
         }
 
-        const activeContainer = findContainer(activeId);
-        const overContainer = findContainer(overId);
+        const oldIndex = activeTodos.findIndex(t => t.id === activeId);
+        const newIndex = activeTodos.findIndex(t => t.id === overId);
 
-        if (!activeContainer || !overContainer) {
-            setActiveId(null);
-            return;
-        }
+        if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+            const reordered = arrayMove(activeTodos, oldIndex, newIndex);
 
-        // 1. Moving within the same container (Reordering)
-        if (activeContainer === overContainer) {
-            const containerTodos = activeContainer === 'work' ? workTodos : personalTodos;
-            const oldIndex = containerTodos.findIndex(t => t.id === activeId);
-            const newIndex = containerTodos.findIndex(t => t.id === overId);
+            const baseIndex = Math.max(...activeTodos.map(todo => todo.sortIndex || 0), activeTodos.length);
 
-            if (oldIndex !== newIndex) {
-                // Calculate new sortIndices
-                // We need the reordered array to verify indices
-                const reordered = arrayMove(containerTodos, oldIndex, newIndex);
+            const updates = reordered.map((todo, idx) => ({
+                id: todo.id,
+                changes: { sortIndex: baseIndex - (idx * 100) }
+            }));
 
-                // Robust Strategy: Generate NEW indices for the updated order.
-                // We want the top item (index 0) to have the HIGHEST sortIndex (descending sort).
-                // We use a base timestamp and subtract time to create a descending sequence.
-                const baseIndex = Date.now();
-
-                const updates = reordered.map((todo, idx) => ({
-                    id: todo.id,
-                    changes: { sortIndex: baseIndex - (idx * 100) } // Spaced by 100ms equivalent to ensure gaps
-                }));
-
-                if (onReorder) onReorder(updates);
-            }
-        }
-        // 2. Moving between containers
-        else {
-            // Changing category
-            // We need to insert it into the new container.
-            // At what position? 'overId' position?
-
-            // Simplification: Just switch category, and let it go to top (high sort index).
-            // Or better, try to insert at 'over' position if over is an item.
-
-            const targetCategory = overContainer === 'work' ? 'work' : 'personal';
-
-            // If dropped on container placeholder, goes to top?
-            // Since we sort Descending, Date.now() puts it at top.
-
-            if (onUpdate) {
-                onUpdate(activeId, {
-                    category: targetCategory,
-                    sortIndex: Date.now() // Move to top of new list for visual feedback
-                });
-            }
+            if (onReorder) onReorder(updates);
         }
 
         setActiveId(null);
@@ -216,7 +156,7 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onUpdate, o
         return (
             <div className="space-y-8">
                 {/* Input Form */}
-                <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <form onSubmit={handleSubmit} className="flex gap-3 bg-slate-50 p-4 rounded-xl border border-slate-100">
                     <div className="flex-1">
                         <input
                             type="text"
@@ -226,15 +166,7 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onUpdate, o
                             className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all shadow-sm bg-white"
                         />
                     </div>
-                    <div className="flex items-center gap-2">
-                        <select
-                            value={newTodoCategory}
-                            onChange={(e) => setNewTodoCategory(e.target.value)}
-                            className="px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:border-indigo-500 bg-white text-sm font-medium text-slate-700 cursor-pointer"
-                        >
-                            <option value="work">Work</option>
-                            <option value="personal">Personal</option>
-                        </select>
+                    <div className="flex items-center">
                         <button
                             type="submit"
                             disabled={!newTodo.trim()}
@@ -248,7 +180,7 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onUpdate, o
 
                 {todos.length === 0 && (
                     <div className="text-center py-12 text-slate-400 italic">
-                        No todos yet. Adds some or extract them from your entries!
+                        No todos yet. Add some or extract them from your entries!
                     </div>
                 )}
 
@@ -258,66 +190,25 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onUpdate, o
                     onDragStart={handleDragStart}
                     onDragEnd={handleDragEnd}
                 >
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                        {/* Work Column */}
-                        <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 min-h-[300px]">
-                            <div className="flex items-center gap-2 mb-4 text-slate-800 font-semibold px-2">
-                                <Briefcase size={18} className="text-indigo-600" />
-                                <h3>Work</h3>
-                                <span className="ml-auto bg-indigo-100 text-indigo-700 text-xs px-2 py-0.5 rounded-full">{workTodos.length}</span>
-                            </div>
-
-                            <DroppableContainer id="container-work" className="min-h-[200px]">
-                                <SortableContext items={workTodos.map(t => t.id)} strategy={verticalListSortingStrategy}>
-                                    <div className="space-y-2">
-                                        {workTodos.map(todo => (
-                                            <SortableTodoItem
-                                                key={todo.id}
-                                                todo={todo}
-                                                onToggle={onToggle}
-                                                onDelete={onDelete}
-                                                onSchedule={onSchedule}
-                                            />
-                                        ))}
-                                        {workTodos.length === 0 && (
-                                            <div className="text-center py-8 text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
-                                                Drop work items here
-                                            </div>
-                                        )}
+                    <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 min-h-[300px]">
+                        <SortableContext items={activeTodos.map(t => t.id)} strategy={verticalListSortingStrategy}>
+                            <div className="space-y-2">
+                                {activeTodos.map(todo => (
+                                    <SortableTodoItem
+                                        key={todo.id}
+                                        todo={todo}
+                                        onToggle={onToggle}
+                                        onDelete={onDelete}
+                                        onSchedule={onSchedule}
+                                    />
+                                ))}
+                                {activeTodos.length === 0 && todos.length > 0 && (
+                                    <div className="text-center py-8 text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
+                                        No active todos
                                     </div>
-                                </SortableContext>
-                            </DroppableContainer>
-                        </div>
-
-                        {/* Personal Column */}
-                        <div className="bg-slate-50 rounded-2xl p-4 border border-slate-100 min-h-[300px]">
-                            <div className="flex items-center gap-2 mb-4 text-slate-800 font-semibold px-2">
-                                <User size={18} className="text-emerald-600" />
-                                <h3>Personal</h3>
-                                <span className="ml-auto bg-emerald-100 text-emerald-700 text-xs px-2 py-0.5 rounded-full">{personalTodos.length}</span>
+                                )}
                             </div>
-
-                            <DroppableContainer id="container-personal" className="min-h-[200px]">
-                                <SortableContext items={personalTodos.map(t => t.id)} strategy={verticalListSortingStrategy}>
-                                    <div className="space-y-2">
-                                        {personalTodos.map(todo => (
-                                            <SortableTodoItem
-                                                key={todo.id}
-                                                todo={todo}
-                                                onToggle={onToggle}
-                                                onDelete={onDelete}
-                                                onSchedule={onSchedule}
-                                            />
-                                        ))}
-                                        {personalTodos.length === 0 && (
-                                            <div className="text-center py-8 text-slate-400 text-sm border-2 border-dashed border-slate-200 rounded-xl">
-                                                Drop personal items here
-                                            </div>
-                                        )}
-                                    </div>
-                                </SortableContext>
-                            </DroppableContainer>
-                        </div>
+                        </SortableContext>
                     </div>
 
                     <DragOverlay>
@@ -390,10 +281,6 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onUpdate, o
                         </div>
                     )}
 
-                    {/* Tiny work/personal separation in sidebar? Or just mix them? 
-                        User probably prefers mixing in sidebar for compactness.
-                        I'll show category icon though.
-                    */}
                     {activeTodos.map(todo => (
                         <div key={todo.id} className="group flex items-start gap-2 p-2 rounded-lg hover:bg-slate-50 transition-colors">
                             <button
@@ -403,14 +290,6 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onUpdate, o
                             <span className="text-sm text-slate-700 leading-tight break-words flex-1">
                                 {todo.text}
                             </span>
-
-                            {/* Category Indicator */}
-                            {todo.category === 'work' ? (
-                                <Briefcase size={12} className="text-indigo-400 mt-1 flex-shrink-0" title="Work" />
-                            ) : (
-                                <User size={12} className="text-emerald-400 mt-1 flex-shrink-0" title="Personal" />
-                            )}
-
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {onSchedule && (
                                     <button
