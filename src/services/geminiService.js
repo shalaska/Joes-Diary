@@ -104,6 +104,44 @@ export const editSelection = async (selection, instruction, apiKey, editPrompt) 
     }
 };
 
+export const createCalendarObservation = (events) => {
+    const timedEvents = (events || [])
+        .filter(event => event.start?.dateTime && event.end?.dateTime)
+        .map(event => ({
+            title: event.summary || '(No title)',
+            start: new Date(event.start.dateTime),
+            end: new Date(event.end.dateTime)
+        }))
+        .filter(event => !Number.isNaN(event.start.getTime()) && !Number.isNaN(event.end.getTime()))
+        .sort((a, b) => a.start - b.start);
+
+    let latestEnd = null;
+    const overlaps = timedEvents.filter(event => {
+        const overlapsPrevious = latestEnd && event.start < latestEnd;
+        if (!latestEnd || event.end > latestEnd) latestEnd = event.end;
+        return overlapsPrevious;
+    });
+    if (overlaps.length) {
+        return `The schedule contains ${overlaps.length === 1 ? 'an overlapping commitment' : `${overlaps.length} overlapping commitments`}, suggesting that part of the day may have required prioritising or switching between plans.`;
+    }
+
+    const longest = timedEvents.reduce((current, event) => {
+        const duration = event.end - event.start;
+        return !current || duration > current.duration ? { ...event, duration } : current;
+    }, null);
+    if (longest?.duration >= 2 * 60 * 60 * 1000) {
+        const hours = longest.duration / (60 * 60 * 1000);
+        return `“${longest.title}” was the largest block in the calendar at ${Number.isInteger(hours) ? hours : hours.toFixed(1)} hours, making it the day’s main scheduled time commitment.`;
+    }
+
+    if (timedEvents.length >= 6) {
+        const span = (timedEvents[timedEvents.length - 1].end - timedEvents[0].start) / (60 * 60 * 1000);
+        return `The calendar was fairly structured, with ${timedEvents.length} timed items spread across roughly ${Math.max(1, Math.round(span))} hours.`;
+    }
+
+    return `The calendar contained ${events?.length || 0} scheduled item${events?.length === 1 ? '' : 's'}, leaving a relatively simple outline of the day rather than a tightly packed plan.`;
+};
+
 export const createCalendarDiaryNote = async (calendarDate, events, apiKey) => {
     if (!apiKey || !events?.length) return null;
 
@@ -131,7 +169,8 @@ Important rules:
 - Never invent outcomes, emotions, people, places, or details that are not supported by the calendar.
 - Do not overinterpret unclear or abbreviated event titles.
 - Account for every event. Put items that do not fit the narrative under a short "Other scheduled items" section.
-- Return only clean Markdown for the diary note. Begin with "## Day from My Calendar". Keep it concise.
+- End with a section titled "## Insight or Observation" containing one genuinely useful, schedule-grounded takeaway. Decide what is most useful: for example an overlap, demanding transition, dominant focus block, unusually dense period, long gap, or balance between types of activity. Avoid generic encouragement and do not invent how the user felt.
+- Return only clean Markdown for the diary note. Begin with "## Day from My Calendar". Keep the whole note concise.
 
 Calendar events:
 ${JSON.stringify(eventDetails, null, 2)}
@@ -141,7 +180,11 @@ ${JSON.stringify(eventDetails, null, 2)}
         const model = getModel(apiKey);
         const result = await model.generateContent(prompt);
         const response = await result.response;
-        return response.text().replace(/^```(?:markdown)?\s*|\s*```$/g, '').trim() || null;
+        let note = response.text().replace(/^```(?:markdown)?\s*|\s*```$/g, '').trim();
+        if (note && !/^##\s+(?:Insight|Observation)/im.test(note)) {
+            note += `\n\n## Insight or Observation\n\n${createCalendarObservation(events)}`;
+        }
+        return note || null;
     } catch (error) {
         console.error('Error creating calendar diary note:', error);
         return null;
