@@ -1,33 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { X, Save, Key, MessageSquare, Calendar } from 'lucide-react';
+import NotionSettings from './NotionSettings';
 
 const SettingsModal = ({
-    isOpen,
     onClose,
     onSave,
     initialApiKey,
     initialSystemPrompt,
     initialEditPrompt,
     initialGoogleClientId,
-    initialGoogleApiKey
+    initialGoogleApiKey,
+    onNotionImport
 }) => {
     const [apiKey, setApiKey] = useState(initialApiKey || '');
     const [systemPrompt, setSystemPrompt] = useState(initialSystemPrompt || '');
     const [editPrompt, setEditPrompt] = useState(initialEditPrompt || '');
     const [googleClientId, setGoogleClientId] = useState(initialGoogleClientId || '');
     const [googleApiKey, setGoogleApiKey] = useState(initialGoogleApiKey || '');
-
-    useEffect(() => {
-        if (isOpen) {
-            setApiKey(initialApiKey || '');
-            setSystemPrompt(initialSystemPrompt || '');
-            setEditPrompt(initialEditPrompt || '');
-            setGoogleClientId(initialGoogleClientId || '');
-            setGoogleApiKey(initialGoogleApiKey || '');
-        }
-    }, [isOpen, initialApiKey, initialSystemPrompt, initialEditPrompt, initialGoogleClientId, initialGoogleApiKey]);
-
-    if (!isOpen) return null;
 
     const handleSave = () => {
         onSave(apiKey, systemPrompt, editPrompt, googleClientId, googleApiKey);
@@ -145,6 +134,8 @@ const SettingsModal = ({
                             />
                         </div>
                     </div>
+
+                    <NotionSettings onImport={onNotionImport} />
 
                 </div>
 

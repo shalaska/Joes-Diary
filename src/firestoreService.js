@@ -6,7 +6,6 @@ import {
     setDoc,
     deleteDoc,
     query,
-    orderBy,
     writeBatch,
     addDoc,
     updateDoc
@@ -96,6 +95,30 @@ export const firestoreService = {
         }
     },
 
+    async importNotionEntries(userId, entries) {
+        const CHUNK_SIZE = 200;
+
+        for (let start = 0; start < entries.length; start += CHUNK_SIZE) {
+            const batch = writeBatch(db);
+            const chunk = entries.slice(start, start + CHUNK_SIZE);
+
+            chunk.forEach(entry => {
+                const { title, ...diaryEntry } = entry;
+                const entryRef = doc(db, 'users', userId, 'entries', entry.date);
+                const metadataRef = doc(db, 'users', userId, 'dayMetadata', entry.groupId);
+                batch.set(entryRef, diaryEntry, { merge: true });
+                batch.set(metadataRef, {
+                    customTitle: title,
+                    source: 'notion-export'
+                }, { merge: true });
+            });
+
+            await batch.commit();
+        }
+
+        return entries.length;
+    },
+
     async getDayMetadata(userId) {
         const q = query(collection(db, 'users', userId, 'dayMetadata'));
         const snapshot = await getDocs(q);
@@ -110,7 +133,6 @@ export const firestoreService = {
 
     async getUserSettings(userId) {
         const ref = doc(db, 'users', userId, 'settings', 'general');
-        const snapshot = await getDocs(query(collection(db, 'users', userId, 'settings')));
         // We'll just use a single document 'general' for now
         const docSnap = await import('firebase/firestore').then(mod => mod.getDoc(ref));
 

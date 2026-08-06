@@ -33,7 +33,9 @@
     "dexie": "^4.2.1",
     "firebase": "^12.6.0",
     "framer-motion": "^12.23.24",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.555.0",
+    "papaparse": "^5.5.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "tailwind-merge": "^3.4.0"

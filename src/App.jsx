@@ -278,6 +278,14 @@ function DiaryApp() {
     setEntries(allEntries);
     const allTrash = await firestoreService.getTrash(currentUser.uid);
     setTrash(allTrash);
+    const allMetadata = await firestoreService.getDayMetadata(currentUser.uid);
+    setDayMetadata(Object.fromEntries(allMetadata.map(metadata => [metadata.id, metadata])));
+  };
+
+  const handleNotionImport = async (notionEntries) => {
+    const count = await firestoreService.importNotionEntries(currentUser.uid, notionEntries);
+    await refreshEntries();
+    return count;
   };
 
   const handleSaveSettings = async (newKey, newPrompt, newEditPrompt, newClientId, newGoogleKey) => {
@@ -791,16 +799,18 @@ function DiaryApp() {
         </div>
       </main>
 
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        onSave={handleSaveSettings}
-        initialApiKey={apiKey}
-        initialSystemPrompt={systemPrompt}
-        initialEditPrompt={editPrompt}
-        initialGoogleClientId={googleClientId}
-        initialGoogleApiKey={googleApiKey}
-      />
+      {isSettingsOpen && (
+        <SettingsModal
+          onClose={() => setIsSettingsOpen(false)}
+          onSave={handleSaveSettings}
+          initialApiKey={apiKey}
+          initialSystemPrompt={systemPrompt}
+          initialEditPrompt={editPrompt}
+          initialGoogleClientId={googleClientId}
+          initialGoogleApiKey={googleApiKey}
+          onNotionImport={handleNotionImport}
+        />
+      )}
 
       <ScheduleTodoModal
         isOpen={isScheduleModalOpen}
