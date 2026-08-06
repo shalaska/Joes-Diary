@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, FilePlus2, CheckCircle2 } from 'lucide-react';
 import { listEventsForDay } from '../services/googleCalendarService';
 
-const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent }) => {
+const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [events, setEvents] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [isCreatingNote, setIsCreatingNote] = useState(false);
+    const [noteMessage, setNoteMessage] = useState('');
 
     const fetchEvents = async () => {
         if (!isSignedIn) return;
@@ -41,17 +43,35 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     const handlePrevDay = () => {
         const newDate = new Date(currentDate);
         newDate.setDate(currentDate.getDate() - 1);
+        setNoteMessage('');
         setCurrentDate(newDate);
     };
 
     const handleNextDay = () => {
         const newDate = new Date(currentDate);
         newDate.setDate(currentDate.getDate() + 1);
+        setNoteMessage('');
         setCurrentDate(newDate);
     };
 
     const handleToday = () => {
+        setNoteMessage('');
         setCurrentDate(new Date());
+    };
+
+    const handleCreateNote = async () => {
+        if (!events.length || !onCreateNote) return;
+        setIsCreatingNote(true);
+        setNoteMessage('');
+        try {
+            const result = await onCreateNote(currentDate, events);
+            setNoteMessage(result?.createdNewDay ? 'Created a new diary day with this schedule.' : 'Added the schedule as a new note for this day.');
+        } catch (noteError) {
+            console.error('Calendar note creation failed:', noteError);
+            setNoteMessage('Could not create the schedule note. Please try again.');
+        } finally {
+            setIsCreatingNote(false);
+        }
     };
 
     // ... (rendering logic updates) ...
@@ -141,6 +161,16 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                         <span>Add Event</span>
                     </button>
                 </div>
+
+                <button
+                    onClick={handleCreateNote}
+                    disabled={isLoading || isCreatingNote || events.length === 0}
+                    className="w-full flex items-center justify-center gap-2 bg-white border border-indigo-200 text-indigo-700 px-3 py-2 rounded-lg text-xs font-medium hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={events.length === 0 ? 'No calendar events to add' : 'Create a diary note from this schedule'}
+                >
+                    {isCreatingNote ? <RefreshCw size={14} className="animate-spin" /> : <FilePlus2 size={14} />}
+                    <span>{isCreatingNote ? 'Creating Note…' : 'Add Schedule to Notes'}</span>
+                </button>
             </div>
 
             {/* Content */}
@@ -149,6 +179,13 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                     <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-start gap-2 text-red-700 text-sm">
                         <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
                         <p>{error}</p>
+                    </div>
+                )}
+
+                {noteMessage && (
+                    <div className={`mb-4 p-3 rounded-lg flex items-start gap-2 text-sm ${noteMessage.startsWith('Could not') ? 'bg-red-50 border border-red-100 text-red-700' : 'bg-emerald-50 border border-emerald-100 text-emerald-700'}`}>
+                        <CheckCircle2 size={16} className="mt-0.5 flex-shrink-0" />
+                        <p>{noteMessage}</p>
                     </div>
                 )}
 

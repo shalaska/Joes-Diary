@@ -395,6 +395,44 @@ function DiaryApp() {
     await refreshEntries();
   };
 
+  const createCalendarScheduleNote = async (calendarDate, calendarEvents) => {
+    const targetDate = new Date(calendarDate);
+    const targetDay = targetDate.toDateString();
+    const existingGroup = Object.entries(groupedEntries).find(([groupId, groupEntries]) => {
+      const groupMatches = !Number.isNaN(new Date(groupId).getTime()) && new Date(groupId).toDateString() === targetDay;
+      const entryMatches = groupEntries.some(entry => new Date(entry.date).toDateString() === targetDay);
+      return groupMatches || entryMatches;
+    });
+    const groupId = existingGroup?.[0] || targetDay;
+
+    const scheduleLines = calendarEvents.map(event => {
+      const isAllDay = !event.start?.dateTime;
+      const start = new Date(event.start?.dateTime || event.start?.date);
+      const end = new Date(event.end?.dateTime || event.end?.date);
+      const time = isAllDay
+        ? 'All day'
+        : `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}–${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+      const location = event.location ? ` — ${event.location}` : '';
+      return `- **${time}** ${event.summary || '(No title)'}${location}`;
+    });
+
+    const content = `## Calendar Schedule\n\n${scheduleLines.join('\n')}`;
+    const now = new Date();
+    targetDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
+    const newEntry = {
+      date: targetDate.toISOString(),
+      content,
+      groupId,
+      source: 'google-calendar'
+    };
+
+    await firestoreService.saveEntry(currentUser.uid, newEntry);
+    await refreshEntries();
+    setSelectedDate(groupId);
+    setView('diary');
+    return { createdNewDay: !existingGroup };
+  };
+
   const deleteEntry = async (entryDate) => {
     const entryToDelete = entries.find(e => e.date === entryDate);
     if (entryToDelete) {
@@ -833,6 +871,7 @@ function DiaryApp() {
             onSignIn={handleCalendarSignIn}
             onSignOut={handleCalendarSignOut}
             isConfigured={isCalendarConfigured}
+            onCreateNote={createCalendarScheduleNote}
             onAddEvent={(date) => {
               setTodoToSchedule(null); // Clear todo context
               // We need a state for the specific date clicked in calendar
