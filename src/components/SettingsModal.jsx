@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Save, Key, MessageSquare, Calendar } from 'lucide-react';
 import NotionSettings from './NotionSettings';
 import DataExportSettings from './DataExportSettings';
+import SiriShortcutSettings from './SiriShortcutSettings';
 
 const SettingsModal = ({
     onClose,
@@ -141,6 +142,8 @@ const SettingsModal = ({
                     <NotionSettings onImport={onNotionImport} />
 
                     <DataExportSettings entries={entries} dayMetadata={dayMetadata} />
+
+                    <SiriShortcutSettings />
 
                 </div>
 

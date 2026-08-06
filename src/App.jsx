@@ -7,13 +7,31 @@ import GeminiPanel from './components/GeminiPanel';
 import CalendarPanel from './components/CalendarPanel';
 import ScheduleTodoModal from './components/ScheduleTodoModal';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { Menu, Book, Plus, Sparkles, ListTodo } from 'lucide-react';
+import { Menu, Book, Plus, Sparkles, ListTodo, CheckCircle2, X } from 'lucide-react';
 import SettingsModal from './components/SettingsModal';
 
 import { db as localDB } from './db';
 import { firestoreService } from './firestoreService';
 import { askGemini, editSelection, extractTodos, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
 import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, isReady, tryRestoreSession } from './services/googleCalendarService';
+
+const buildTodos = (newTodos) => {
+  const now = Date.now();
+  return newTodos.map((todo, index) => ({
+    text: todo.text,
+    priority: todo.priority || 'medium',
+    completed: todo.completed || false,
+    id: `${now + index}-${Math.random().toString(36).slice(2, 11)}`,
+    created: new Date().toISOString(),
+    sortIndex: now + index
+  }));
+};
+
+const quickTodoFromHash = () => {
+  const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+  const text = new URLSearchParams(hash).get('quickTodo')?.trim();
+  return text ? text.slice(0, 1000) : '';
+};
 
 function DiaryApp() {
   const { currentUser, logout } = useAuth();
@@ -23,6 +41,8 @@ function DiaryApp() {
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [todos, setTodos] = useState([]);
+  const [quickCaptureMessage, setQuickCaptureMessage] = useState('');
+  const [quickCaptureFailed, setQuickCaptureFailed] = useState(false);
 
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -144,6 +164,34 @@ function DiaryApp() {
       alert("Failed to schedule event. Please check your calendar connection.");
     }
   };
+
+  useEffect(() => {
+    if (!currentUser || isLoading) return undefined;
+
+    const captureQuickTodo = async () => {
+      const quickTodoText = quickTodoFromHash();
+      if (!quickTodoText) return;
+
+      window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`);
+      try {
+        const [quickTodo] = buildTodos([{ text: quickTodoText }]);
+        await firestoreService.saveTodo(currentUser.uid, quickTodo);
+        setTodos(previous => [...previous, quickTodo]);
+        setQuickCaptureFailed(false);
+        setQuickCaptureMessage(`Added “${quickTodoText}” to your todos.`);
+        setView('todos');
+      } catch (error) {
+        console.error('Quick capture failed:', error);
+        window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#quickTodo=${encodeURIComponent(quickTodoText)}`);
+        setQuickCaptureFailed(true);
+        setQuickCaptureMessage('That todo could not be saved. Please try again.');
+      }
+    };
+
+    window.addEventListener('hashchange', captureQuickTodo);
+    captureQuickTodo();
+    return () => window.removeEventListener('hashchange', captureQuickTodo);
+  }, [currentUser, isLoading]);
 
 
   // -------------------------------------------------------------------------
@@ -373,17 +421,7 @@ function DiaryApp() {
 
   // Todo Handlers
   const handleAddTodos = async (newTodos) => {
-    // Generate IDs and sortIndices (use timestamp for default sort, descending or ascending? DndKit usually easier with indices)
-    // We'll use a large number for new items to put them at top, or just use current time.
-    const now = Date.now();
-    const todosWithIds = newTodos.map((t, idx) => ({
-      text: t.text,
-      priority: t.priority || 'medium',
-      completed: t.completed || false,
-      id: (now + idx) + "-" + Math.random().toString(36).substr(2, 9),
-      created: new Date().toISOString(),
-      sortIndex: now + idx // Simple default sort order
-    }));
+    const todosWithIds = buildTodos(newTodos);
 
     setTodos(prev => [...prev, ...todosWithIds]);
     for (const todo of todosWithIds) {
@@ -563,6 +601,15 @@ function DiaryApp() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row h-screen overflow-hidden">
+      {quickCaptureMessage && (
+        <div className={`fixed top-4 left-1/2 -translate-x-1/2 z-[60] w-[calc(100%-2rem)] max-w-md ${quickCaptureFailed ? 'bg-red-600' : 'bg-emerald-600'} text-white px-4 py-3 rounded-xl shadow-xl flex items-start gap-3`}>
+          <CheckCircle2 size={20} className="mt-0.5 flex-shrink-0" />
+          <span className="text-sm font-medium flex-1">{quickCaptureMessage}</span>
+          <button onClick={() => setQuickCaptureMessage('')} className="text-white/80 hover:text-white" aria-label="Dismiss confirmation">
+            <X size={18} />
+          </button>
+        </div>
+      )}
       {/* Mobile Header */}
       <div className="md:hidden bg-white border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-20 flex-shrink-0">
         <div className="flex items-center gap-2 text-slate-800 font-bold text-lg">
