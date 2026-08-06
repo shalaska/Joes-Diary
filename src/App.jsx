@@ -12,7 +12,7 @@ import SettingsModal from './components/SettingsModal';
 
 import { db as localDB } from './db';
 import { firestoreService } from './firestoreService';
-import { askGemini, editSelection, extractTodos, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
+import { askGemini, editSelection, extractTodos, createCalendarDiaryNote, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
 import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, isReady, tryRestoreSession } from './services/googleCalendarService';
 
 const buildTodos = (newTodos) => {
@@ -416,14 +416,15 @@ function DiaryApp() {
       return `- **${time}** ${event.summary || '(No title)'}${location}`;
     });
 
-    const content = `## Calendar Schedule\n\n${scheduleLines.join('\n')}`;
+    const generatedContent = await createCalendarDiaryNote(calendarDate, calendarEvents, apiKey);
+    const content = generatedContent || `## Day from My Calendar\n\nI couldn't confidently piece these events into a narrative, so here is what else was scheduled:\n\n${scheduleLines.join('\n')}`;
     const now = new Date();
     targetDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
     const newEntry = {
       date: targetDate.toISOString(),
       content,
       groupId,
-      source: 'google-calendar'
+      source: generatedContent ? 'google-calendar-ai' : 'google-calendar'
     };
 
     await firestoreService.saveEntry(currentUser.uid, newEntry);

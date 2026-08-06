@@ -104,6 +104,50 @@ export const editSelection = async (selection, instruction, apiKey, editPrompt) 
     }
 };
 
+export const createCalendarDiaryNote = async (calendarDate, events, apiKey) => {
+    if (!apiKey || !events?.length) return null;
+
+    const eventDetails = events.map(event => {
+        const isAllDay = !event.start?.dateTime;
+        const start = new Date(event.start?.dateTime || event.start?.date);
+        const end = new Date(event.end?.dateTime || event.end?.date);
+        const time = isAllDay
+            ? 'All day'
+            : `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}–${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        return {
+            time,
+            title: event.summary || '(No title)',
+            location: event.location || null,
+            description: event.description?.slice(0, 1000) || null
+        };
+    });
+
+    const prompt = `
+Turn the following calendar schedule for ${new Date(calendarDate).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} into a concise diary-style note.
+
+Important rules:
+- Calendar entries are plans, not proof that something happened. Use cautious wording such as "was scheduled", "the day was planned around", or "the calendar included".
+- Try to piece together a coherent picture of the day by grouping related activities and noticing the likely flow from morning to evening.
+- Never invent outcomes, emotions, people, places, or details that are not supported by the calendar.
+- Do not overinterpret unclear or abbreviated event titles.
+- Account for every event. Put items that do not fit the narrative under a short "Other scheduled items" section.
+- Return only clean Markdown for the diary note. Begin with "## Day from My Calendar". Keep it concise.
+
+Calendar events:
+${JSON.stringify(eventDetails, null, 2)}
+`;
+
+    try {
+        const model = getModel(apiKey);
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        return response.text().replace(/^```(?:markdown)?\s*|\s*```$/g, '').trim() || null;
+    } catch (error) {
+        console.error('Error creating calendar diary note:', error);
+        return null;
+    }
+};
+
 const TODO_EXTRACTION_PROMPT = `
 You are a task extraction assistant.
 Analyze the following text and identify any actionable tasks or "todos".

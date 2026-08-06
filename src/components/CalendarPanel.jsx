@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, FilePlus2, CheckCircle2 } from 'lucide-react';
+import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, Sparkles, CheckCircle2 } from 'lucide-react';
 import { listEventsForDay } from '../services/googleCalendarService';
 
 const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote }) => {
@@ -65,7 +65,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
         setNoteMessage('');
         try {
             const result = await onCreateNote(currentDate, events);
-            setNoteMessage(result?.createdNewDay ? 'Created a new diary day with this schedule.' : 'Added the schedule as a new note for this day.');
+            setNoteMessage(result?.createdNewDay ? 'Created a new diary day from this schedule.' : 'Generated a new diary note from this schedule.');
         } catch (noteError) {
             console.error('Calendar note creation failed:', noteError);
             setNoteMessage('Could not create the schedule note. Please try again.');
@@ -166,10 +166,10 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                     onClick={handleCreateNote}
                     disabled={isLoading || isCreatingNote || events.length === 0}
                     className="w-full flex items-center justify-center gap-2 bg-white border border-indigo-200 text-indigo-700 px-3 py-2 rounded-lg text-xs font-medium hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={events.length === 0 ? 'No calendar events to add' : 'Create a diary note from this schedule'}
+                    title={events.length === 0 ? 'No calendar events to use' : 'Use Gemini to create a diary note from this schedule'}
                 >
-                    {isCreatingNote ? <RefreshCw size={14} className="animate-spin" /> : <FilePlus2 size={14} />}
-                    <span>{isCreatingNote ? 'Creating Note…' : 'Add Schedule to Notes'}</span>
+                    {isCreatingNote ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                    <span>{isCreatingNote ? 'Generating Note…' : 'Generate Day Note'}</span>
                 </button>
             </div>
 
