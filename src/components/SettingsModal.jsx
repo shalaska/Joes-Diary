@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Save, Key, MessageSquare, Calendar } from 'lucide-react';
 import NotionSettings from './NotionSettings';
+import DataExportSettings from './DataExportSettings';
 
 const SettingsModal = ({
     onClose,
@@ -10,7 +11,9 @@ const SettingsModal = ({
     initialEditPrompt,
     initialGoogleClientId,
     initialGoogleApiKey,
-    onNotionImport
+    onNotionImport,
+    entries,
+    dayMetadata
 }) => {
     const [apiKey, setApiKey] = useState(initialApiKey || '');
     const [systemPrompt, setSystemPrompt] = useState(initialSystemPrompt || '');
@@ -136,6 +139,8 @@ const SettingsModal = ({
                     </div>
 
                     <NotionSettings onImport={onNotionImport} />
+
+                    <DataExportSettings entries={entries} dayMetadata={dayMetadata} />
 
                 </div>
 

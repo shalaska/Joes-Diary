@@ -809,6 +809,8 @@ function DiaryApp() {
           initialGoogleClientId={googleClientId}
           initialGoogleApiKey={googleApiKey}
           onNotionImport={handleNotionImport}
+          entries={entries}
+          dayMetadata={dayMetadata}
         />
       )}
 
