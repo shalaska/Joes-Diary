@@ -142,6 +142,52 @@ export const createCalendarObservation = (events) => {
     return `The calendar contained ${events?.length || 0} scheduled item${events?.length === 1 ? '' : 's'}, leaving a relatively simple outline of the day rather than a tightly packed plan.`;
 };
 
+export const createCalendarDayShape = (events) => {
+    const timedEvents = (events || [])
+        .filter(event => event.start?.dateTime && event.end?.dateTime)
+        .map(event => ({
+            start: new Date(event.start.dateTime),
+            end: new Date(event.end.dateTime)
+        }))
+        .filter(event => !Number.isNaN(event.start.getTime()) && !Number.isNaN(event.end.getTime()) && event.end > event.start)
+        .sort((a, b) => a.start - b.start);
+
+    if (!timedEvents.length) {
+        return `The calendar frames this as ${events?.length ? 'an open-ended day organised around all-day commitments' : 'an unstructured day with no recorded commitments'}.`;
+    }
+
+    const merged = [];
+    timedEvents.forEach(event => {
+        const previous = merged[merged.length - 1];
+        if (previous && event.start <= previous.end) {
+            if (event.end > previous.end) previous.end = event.end;
+        } else {
+            merged.push({ ...event });
+        }
+    });
+
+    const span = timedEvents[timedEvents.length - 1].end - timedEvents[0].start;
+    const occupied = merged.reduce((total, event) => total + (event.end - event.start), 0);
+    const occupancy = span > 0 ? occupied / span : 1;
+    const longestBlock = Math.max(...timedEvents.map(event => event.end - event.start));
+    const gaps = merged.slice(1).map((event, index) => event.start - merged[index].end);
+    const longestGap = gaps.length ? Math.max(...gaps) : 0;
+
+    if (timedEvents.length >= 7 || (timedEvents.length >= 4 && occupancy >= 0.75)) {
+        return 'The calendar frames this as a tightly structured, task-heavy day, with much of the available time already spoken for and relatively little room between commitments.';
+    }
+    if (longestBlock >= 3 * 60 * 60 * 1000) {
+        return 'The calendar frames this as a focus-led day, built around one substantial commitment with the remaining items arranged around it.';
+    }
+    if (longestGap >= 3 * 60 * 60 * 1000) {
+        return 'The calendar frames this as a split-paced day, with distinct periods of activity separated by a meaningful stretch of open time.';
+    }
+    if (timedEvents.length <= 3) {
+        return 'The calendar frames this as a lightly structured day, with a few clear anchors and plenty of time left undefined.';
+    }
+    return 'The calendar frames this as a moderately structured, mixed-paced day: organised enough to give it direction without every part being tightly scheduled.';
+};
+
 export const createCalendarDiaryNote = async (calendarDate, events, apiKey) => {
     if (!apiKey || !events?.length) return null;
 
@@ -169,7 +215,8 @@ Important rules:
 - Never invent outcomes, emotions, people, places, or details that are not supported by the calendar.
 - Do not overinterpret unclear or abbreviated event titles.
 - Account for every event. Put items that do not fit the narrative under a short "Other scheduled items" section.
-- End with a section titled "## Insight or Observation" containing one genuinely useful, schedule-grounded takeaway. Decide what is most useful: for example an overlap, demanding transition, dominant focus block, unusually dense period, long gap, or balance between types of activity. Avoid generic encouragement and do not invent how the user felt.
+- Near the end, add a section titled "## Shape of the Day". In two or three sentences, characterise what kind of day the calendar suggests at a higher level—for example focused, fragmented, task-heavy, appointment-led, transitional, logistics-heavy, balanced, or lightly structured. Base this on both the themes of the event titles and the rhythm of the schedule. Do not infer the user's mood, personality, success, or actual experience.
+- End with a section titled "## Insight or Observation" containing one concrete, useful, schedule-grounded takeaway. Decide what is most useful: for example an overlap, demanding transition, dominant focus block, unusually dense period, long gap, or balance between types of activity. Avoid generic encouragement and do not invent how the user felt.
 - Return only clean Markdown for the diary note. Begin with "## Day from My Calendar". Keep the whole note concise.
 
 Calendar events:
@@ -181,6 +228,13 @@ ${JSON.stringify(eventDetails, null, 2)}
         const result = await model.generateContent(prompt);
         const response = await result.response;
         let note = response.text().replace(/^```(?:markdown)?\s*|\s*```$/g, '').trim();
+        if (note && !/^##\s+Shape of the Day/im.test(note)) {
+            const insightIndex = note.search(/^##\s+(?:Insight|Observation)/im);
+            const shapeSection = `## Shape of the Day\n\n${createCalendarDayShape(events)}`;
+            note = insightIndex >= 0
+                ? `${note.slice(0, insightIndex).trim()}\n\n${shapeSection}\n\n${note.slice(insightIndex).trim()}`
+                : `${note}\n\n${shapeSection}`;
+        }
         if (note && !/^##\s+(?:Insight|Observation)/im.test(note)) {
             note += `\n\n## Insight or Observation\n\n${createCalendarObservation(events)}`;
         }
