@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, Sparkles, CheckCircle2, List, Clock3 } from 'lucide-react';
+import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, Sparkles, CheckCircle2, List, Clock3, Trash2, X } from 'lucide-react';
 import { listEventsForDay } from '../services/googleCalendarService';
 
 const HOUR_HEIGHT = 64;
@@ -48,7 +48,7 @@ const layoutTimedEvents = (events) => {
     });
 };
 
-const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote, onCalendarContextChange, refreshKey }) => {
+const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote, onCalendarContextChange, refreshKey, onDeleteEvent }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [events, setEvents] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -57,6 +57,9 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     const [noteMessage, setNoteMessage] = useState('');
     const [viewMode, setViewMode] = useState('hours');
     const [currentTime, setCurrentTime] = useState(() => new Date());
+    const [selectedEvent, setSelectedEvent] = useState(null);
+    const [isDeletingEvent, setIsDeletingEvent] = useState(false);
+    const [deleteError, setDeleteError] = useState('');
     const contentRef = useRef(null);
 
     const fetchEvents = async () => {
@@ -118,6 +121,32 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     const handleHourClick = (hour) => {
         const startTime = `${String(hour).padStart(2, '0')}:00`;
         onAddEvent(currentDate, startTime);
+    };
+
+    const openEventDetails = (event) => {
+        setSelectedEvent(event);
+        setDeleteError('');
+    };
+
+    const closeEventDetails = () => {
+        if (isDeletingEvent) return;
+        setSelectedEvent(null);
+        setDeleteError('');
+    };
+
+    const handleDeleteEvent = async () => {
+        if (!selectedEvent?.id || !onDeleteEvent) return;
+        setIsDeletingEvent(true);
+        setDeleteError('');
+        try {
+            await onDeleteEvent(selectedEvent.id);
+            setSelectedEvent(null);
+        } catch (eventDeleteError) {
+            console.error('Calendar event deletion failed:', eventDeleteError);
+            setDeleteError('Could not delete this event. Check your calendar connection and try again.');
+        } finally {
+            setIsDeletingEvent(false);
+        }
     };
 
     const handlePrevDay = () => {
@@ -197,7 +226,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     const currentTimeTop = ((currentTime.getHours() * 60) + currentTime.getMinutes()) / 60 * HOUR_HEIGHT;
 
     return (
-        <div className="bg-white rounded-xl border border-slate-200 flex flex-col h-full overflow-hidden">
+        <div className="relative bg-white rounded-xl border border-slate-200 flex flex-col h-full overflow-hidden">
             {/* Header */}
             <div className="p-4 border-b border-slate-100 flex flex-col gap-4 bg-slate-50">
                 <div className="flex items-center justify-between">
@@ -314,7 +343,13 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                             const isAllDay = !event.start.dateTime;
 
                             return (
-                                <div key={event.id} className="group p-3 rounded-lg border border-slate-100 hover:border-indigo-200 hover:bg-slate-50 transition-all flex gap-3">
+                                <button
+                                    key={event.id}
+                                    type="button"
+                                    onClick={() => openEventDetails(event)}
+                                    className="group w-full p-3 rounded-lg border border-slate-100 hover:border-indigo-200 hover:bg-slate-50 transition-all flex gap-3 text-left"
+                                    title="Open event options"
+                                >
                                     <div className="flex flex-col items-center justify-start pt-1 min-w-[3rem] text-xs text-slate-500 font-medium">
                                         {isAllDay ? (
                                             <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide">All Day</span>
@@ -331,7 +366,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                             <p className="text-xs text-slate-500 truncate">{event.location}</p>
                                         )}
                                     </div>
-                                </div>
+                                </button>
                             );
                         })}
                     </div>
@@ -341,7 +376,15 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                             <div className="mb-3 rounded-lg border border-indigo-100 bg-indigo-50/60 p-2">
                                 <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-500">All day</p>
                                 {events.filter((event) => !event.start.dateTime).map((event) => (
-                                    <p key={event.id} className="truncate text-xs font-medium text-indigo-900">{event.summary || '(No Title)'}</p>
+                                    <button
+                                        key={event.id}
+                                        type="button"
+                                        onClick={() => openEventDetails(event)}
+                                        className="block w-full truncate rounded px-1 py-0.5 text-left text-xs font-medium text-indigo-900 hover:bg-indigo-100"
+                                        title="Open event options"
+                                    >
+                                        {event.summary || '(No Title)'}
+                                    </button>
                                 ))}
                             </div>
                         )}
@@ -372,9 +415,14 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                     const height = Math.max((durationMinutes / 60) * HOUR_HEIGHT, 28);
 
                                     return (
-                                        <div
+                                        <button
                                             key={event.id}
-                                            className="absolute z-10 overflow-hidden rounded-md border border-indigo-300 bg-indigo-100 px-2 py-1 text-indigo-950 shadow-sm"
+                                            type="button"
+                                            onClick={(clickEvent) => {
+                                                clickEvent.stopPropagation();
+                                                openEventDetails(event);
+                                            }}
+                                            className="pointer-events-auto absolute z-10 overflow-hidden rounded-md border border-indigo-300 bg-indigo-100 px-2 py-1 text-left text-indigo-950 shadow-sm transition-colors hover:border-indigo-500 hover:bg-indigo-200"
                                             style={{
                                                 top: `${top}px`,
                                                 height: `${height}px`,
@@ -388,7 +436,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                                     {start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}–{end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                                                 </p>
                                             )}
-                                        </div>
+                                        </button>
                                     );
                                 })}
                             </div>
@@ -408,6 +456,67 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                     </div>
                 )}
             </div>
+
+            {selectedEvent && (
+                <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/20 p-4 backdrop-blur-[1px]">
+                    <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl" role="dialog" aria-modal="true" aria-labelledby="calendar-event-title">
+                        <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-indigo-500">Calendar event</p>
+                                <h3 id="calendar-event-title" className="mt-1 break-words text-lg font-semibold text-slate-900">
+                                    {selectedEvent.summary || '(No Title)'}
+                                </h3>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={closeEventDetails}
+                                disabled={isDeletingEvent}
+                                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                                aria-label="Close event options"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <p className="mt-3 text-sm text-slate-600">
+                            {selectedEvent.start.dateTime ? (
+                                <>
+                                    {new Date(selectedEvent.start.dateTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                    {'–'}
+                                    {new Date(selectedEvent.end.dateTime).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                </>
+                            ) : 'All day'}
+                        </p>
+                        {selectedEvent.location && <p className="mt-1 text-sm text-slate-500">{selectedEvent.location}</p>}
+
+                        {deleteError && (
+                            <p className="mt-4 rounded-lg border border-red-100 bg-red-50 p-3 text-sm text-red-700" role="alert">
+                                {deleteError}
+                            </p>
+                        )}
+
+                        <div className="mt-5 flex gap-3">
+                            <button
+                                type="button"
+                                onClick={closeEventDetails}
+                                disabled={isDeletingEvent}
+                                className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleDeleteEvent}
+                                disabled={isDeletingEvent}
+                                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                                {isDeletingEvent ? <RefreshCw size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                                {isDeletingEvent ? 'Deleting…' : 'Delete Event'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

@@ -13,7 +13,7 @@ import SettingsModal from './components/SettingsModal';
 import { db as localDB } from './db';
 import { firestoreService } from './firestoreService';
 import { askGemini, editSelection, extractTodos, createCalendarDiaryNote, createCalendarDayShape, createCalendarObservation, formatCalendarContext, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
-import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, isReady, tryRestoreSession } from './services/googleCalendarService';
+import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, deleteEvent, isReady, tryRestoreSession } from './services/googleCalendarService';
 
 const buildTodos = (newTodos) => {
   const now = Date.now();
@@ -164,6 +164,16 @@ function DiaryApp() {
       return createdEvent;
     } catch (error) {
       console.error("Failed to schedule event", error);
+      throw error;
+    }
+  };
+
+  const handleDeleteCalendarEvent = async (eventId) => {
+    try {
+      await deleteEvent(eventId);
+      setCalendarRefreshKey(previous => previous + 1);
+    } catch (error) {
+      console.error("Failed to delete event", error);
       throw error;
     }
   };
@@ -888,6 +898,7 @@ function DiaryApp() {
             onCreateNote={createCalendarScheduleNote}
             onCalendarContextChange={setCalendarContext}
             refreshKey={calendarRefreshKey}
+            onDeleteEvent={handleDeleteCalendarEvent}
             onAddEvent={(date, startTime = null) => {
               setTodoToSchedule(null);
               setCalendarActionDate(date);

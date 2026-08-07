@@ -153,6 +153,24 @@ export async function addEvent(event) {
     }
 }
 
+/**
+ * Delete an event from the primary calendar.
+ */
+export async function deleteEvent(eventId) {
+    if (!gapiInited) throw new Error("GAPI not initialized");
+    if (!eventId) throw new Error("Event ID is required");
+
+    try {
+        await gapi.client.calendar.events.delete({
+            'calendarId': 'primary',
+            'eventId': eventId,
+        });
+    } catch (err) {
+        console.error("Error deleting event", err);
+        throw err;
+    }
+}
+
 export function isReady() {
     return gapiInited && gisInited;
 }
