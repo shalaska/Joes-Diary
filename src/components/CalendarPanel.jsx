@@ -9,6 +9,12 @@ const formatHour = (hour) => new Date(2000, 0, 1, hour).toLocaleTimeString([], {
     hour: 'numeric',
 });
 
+const isSameDay = (firstDate, secondDate) => (
+    firstDate.getFullYear() === secondDate.getFullYear()
+    && firstDate.getMonth() === secondDate.getMonth()
+    && firstDate.getDate() === secondDate.getDate()
+);
+
 const layoutTimedEvents = (events) => {
     const timedEvents = events
         .filter((event) => event.start.dateTime)
@@ -49,7 +55,8 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     const [error, setError] = useState(null);
     const [isCreatingNote, setIsCreatingNote] = useState(false);
     const [noteMessage, setNoteMessage] = useState('');
-    const [viewMode, setViewMode] = useState(() => localStorage.getItem('calendar_view_mode') || 'agenda');
+    const [viewMode, setViewMode] = useState('hours');
+    const [currentTime, setCurrentTime] = useState(() => new Date());
     const contentRef = useRef(null);
 
     const fetchEvents = async () => {
@@ -87,19 +94,26 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     }, [isSignedIn, currentDate]);
 
     useEffect(() => {
-        localStorage.setItem('calendar_view_mode', viewMode);
-
         if (viewMode !== 'hours' || !contentRef.current) return;
 
         const timedEventHours = events
             .filter((event) => event.start.dateTime)
             .map((event) => new Date(event.start.dateTime).getHours());
-        const firstVisibleHour = timedEventHours.length ? Math.max(Math.min(...timedEventHours) - 1, 0) : 7;
+        const now = new Date();
+        const firstVisibleHour = isSameDay(currentDate, now)
+            ? Math.max(now.getHours() - 1, 0)
+            : (timedEventHours.length ? Math.max(Math.min(...timedEventHours) - 1, 0) : 7);
 
         requestAnimationFrame(() => {
             if (contentRef.current) contentRef.current.scrollTop = firstVisibleHour * HOUR_HEIGHT;
         });
     }, [viewMode, events, currentDate]);
+
+    useEffect(() => {
+        const updateCurrentTime = () => setCurrentTime(new Date());
+        const timer = window.setInterval(updateCurrentTime, 30000);
+        return () => window.clearInterval(timer);
+    }, []);
 
     const handleHourClick = (hour) => {
         const startTime = `${String(hour).padStart(2, '0')}:00`;
@@ -179,6 +193,8 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     }
 
     const timedEventLayout = layoutTimedEvents(events);
+    const showCurrentTime = isSameDay(currentDate, currentTime);
+    const currentTimeTop = ((currentTime.getHours() * 60) + currentTime.getMinutes()) / 60 * HOUR_HEIGHT;
 
     return (
         <div className="bg-white rounded-xl border border-slate-200 flex flex-col h-full overflow-hidden">
@@ -376,6 +392,18 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                     );
                                 })}
                             </div>
+                            {showCurrentTime && (
+                                <div
+                                    className="pointer-events-none absolute left-14 right-0 z-20 border-t-2 border-rose-500"
+                                    style={{ top: `${currentTimeTop}px` }}
+                                    aria-label={`Current time: ${currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}
+                                >
+                                    <span className="absolute -left-1.5 -top-[5px] h-2.5 w-2.5 rounded-full bg-rose-500 shadow-sm" />
+                                    <span className="absolute right-full top-0 mr-2 -translate-y-1/2 whitespace-nowrap rounded bg-white px-1 text-[10px] font-semibold text-rose-600">
+                                        {currentTime.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
