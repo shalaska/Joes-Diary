@@ -238,22 +238,24 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
                 <div className="flex-1 overflow-y-auto py-4">
                     {/* Todos Button relative to History */}
                     {todos && todos.length > 0 && (
-                        <button
-                            onClick={() => {
-                                onViewTodos?.();
-                                onClose?.();
-                            }}
-                            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors mb-2 ${currentView === 'todos'
-                                ? 'bg-indigo-50 text-indigo-700 font-medium'
-                                : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                                }`}
-                        >
-                            <ListTodo size={18} />
-                            <span>Todos</span>
-                            <span className="ml-auto bg-slate-100 text-slate-600 text-xs px-2 py-0.5 rounded-full">
-                                {todos.filter(t => !t.completed).length}
-                            </span>
-                        </button>
+                        <div className="px-3 mb-4">
+                            <button
+                                onClick={() => {
+                                    onViewTodos?.();
+                                    onClose?.();
+                                }}
+                                className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-xl border text-base shadow-sm transition-all ${currentView === 'todos'
+                                    ? 'bg-indigo-100/80 border-indigo-200 text-indigo-800 font-semibold'
+                                    : 'bg-indigo-50/60 border-indigo-100 text-slate-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-800'
+                                    }`}
+                            >
+                                <ListTodo size={21} className="text-indigo-500" />
+                                <span className="font-medium">Todos</span>
+                                <span className="ml-auto min-w-8 rounded-full border border-indigo-100 bg-white/80 px-2.5 py-1 text-center text-sm text-indigo-700">
+                                    {todos.filter(t => !t.completed).length}
+                                </span>
+                            </button>
+                        </div>
                     )}
 
                     <h3 className="px-6 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
