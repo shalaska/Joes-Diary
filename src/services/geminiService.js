@@ -41,6 +41,8 @@ const getModel = (apiKey) => {
     return genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 };
 
+const CALENDAR_USAGE_GUIDANCE = `The user often uses the calendar as a flexible todo list to shape the day. Multiple items may intentionally share a time window because they are tasks to work through during that block. Do not treat overlap alone as double-booking, a conflict, or a problem unless the event details clearly indicate simultaneous fixed commitments.`;
+
 export const formatCalendarContext = (calendarContext) => {
     if (!calendarContext || !Array.isArray(calendarContext.events)) return '';
 
@@ -68,6 +70,7 @@ export const formatCalendarContext = (calendarContext) => {
     return [
         `Visible Google Calendar schedule for ${dateLabel}:`,
         'Treat these as scheduled plans, not proof that they happened.',
+        CALENDAR_USAGE_GUIDANCE,
         eventLines.length ? eventLines.join('\n') : '- No events scheduled.',
     ].join('\n');
 };
@@ -153,7 +156,7 @@ export const createCalendarObservation = (events) => {
         return overlapsPrevious;
     });
     if (overlaps.length) {
-        return `The schedule contains ${overlaps.length === 1 ? 'an overlapping commitment' : `${overlaps.length} overlapping commitments`}, suggesting that part of the day may have required prioritising or switching between plans.`;
+        return `Some scheduled items share the same time window, consistent with using the calendar as a flexible todo list: they can be read as tasks intended for that broader block rather than a scheduling conflict.`;
     }
 
     const longest = timedEvents.reduce((current, event) => {
@@ -242,12 +245,13 @@ Turn the following calendar schedule for ${new Date(calendarDate).toLocaleDateSt
 
 Important rules:
 - Calendar entries are plans, not proof that something happened. Use cautious wording such as "was scheduled", "the day was planned around", or "the calendar included".
+- ${CALENDAR_USAGE_GUIDANCE}
 - Try to piece together a coherent picture of the day by grouping related activities and noticing the likely flow from morning to evening.
 - Never invent outcomes, emotions, people, places, or details that are not supported by the calendar.
 - Do not overinterpret unclear or abbreviated event titles.
 - Account for every event. Put items that do not fit the narrative under a short "Other scheduled items" section.
 - Near the end, add a section titled "## Shape of the Day". In two or three sentences, characterise what kind of day the calendar suggests at a higher level—for example focused, fragmented, task-heavy, appointment-led, transitional, logistics-heavy, balanced, or lightly structured. Base this on both the themes of the event titles and the rhythm of the schedule. Do not infer the user's mood, personality, success, or actual experience.
-- End with a section titled "## Insight or Observation" containing one concrete, useful, schedule-grounded takeaway. Decide what is most useful: for example an overlap, demanding transition, dominant focus block, unusually dense period, long gap, or balance between types of activity. Avoid generic encouragement and do not invent how the user felt.
+- End with a section titled "## Insight or Observation" containing one concrete, useful, schedule-grounded takeaway. Decide what is most useful: for example a demanding transition, dominant focus block, unusually dense period, long gap, or balance between types of activity. An overlap alone is not a useful warning given how the user uses the calendar; mention it only when the event details provide clear evidence of a genuine conflict. Avoid generic encouragement and do not invent how the user felt.
 - Return only clean Markdown for the diary note. Begin with "## Day from My Calendar". Keep the whole note concise.
 
 Calendar events:
