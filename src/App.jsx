@@ -12,7 +12,7 @@ import SettingsModal from './components/SettingsModal';
 
 import { db as localDB } from './db';
 import { firestoreService } from './firestoreService';
-import { askGemini, editSelection, extractTodos, createCalendarDiaryNote, createCalendarDayShape, createCalendarObservation, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
+import { askGemini, editSelection, extractTodos, createCalendarDiaryNote, createCalendarDayShape, createCalendarObservation, formatCalendarContext, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
 import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, isReady, tryRestoreSession } from './services/googleCalendarService';
 
 const buildTodos = (newTodos) => {
@@ -55,6 +55,7 @@ function DiaryApp() {
   const [googleApiKey, setGoogleApiKey] = useState(localStorage.getItem('google_api_key') || '');
   const [isCalendarSignedIn, setIsCalendarSignedIn] = useState(false);
   const [isCalendarConfigured, setIsCalendarConfigured] = useState(false);
+  const [calendarContext, setCalendarContext] = useState(null);
 
   // Todo Scheduling State
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -512,12 +513,16 @@ function DiaryApp() {
     const aggregatedContent = currentDayEntries
       .map(e => `[Entry Time: ${new Date(e.date).toLocaleTimeString()}]\n${e.content}`)
       .join('\n\n---\n\n');
+    const visibleCalendarContext = formatCalendarContext(calendarContext);
+    const combinedContext = visibleCalendarContext
+      ? `${aggregatedContent}\n\n---\n\n${visibleCalendarContext}`
+      : aggregatedContent;
 
     let prompt = '';
     if (customPrompt) {
-      prompt = `Here are my diary entries for today (${new Date(selectedDate).toLocaleDateString()}):\n\n${aggregatedContent}\n\nQuestion: ${customPrompt}`;
+      prompt = `Here are my diary entries for today (${new Date(selectedDate).toLocaleDateString()}):\n\n${combinedContext}\n\nQuestion: ${customPrompt}`;
     } else {
-      prompt = `Here are my diary entries for today (${new Date(selectedDate).toLocaleDateString()}):\n\n${aggregatedContent}\n\nPlease analyze my day. What are the key themes, mood, or events?`;
+      prompt = `Here are my diary entries for today (${new Date(selectedDate).toLocaleDateString()}):\n\n${combinedContext}\n\nPlease analyze my day. What are the key themes, mood, or events?`;
     }
 
     try {
@@ -598,7 +603,11 @@ function DiaryApp() {
     setGlobalChatHistory(newHistory);
 
     try {
-      const suggestion = await askGemini(replyText, newHistory, apiKey, systemPrompt);
+      const visibleCalendarContext = formatCalendarContext(calendarContext);
+      const contextualReply = visibleCalendarContext
+        ? `${visibleCalendarContext}\n\nUser follow-up: ${replyText}`
+        : replyText;
+      const suggestion = await askGemini(contextualReply, globalChatHistory, apiKey, systemPrompt);
       setGlobalGemini({ loading: false, suggestion });
       setGlobalChatHistory(prev => [...prev, { role: 'model', content: suggestion.content }]);
     } catch (error) {
@@ -800,6 +809,7 @@ function DiaryApp() {
                           systemPrompt={systemPrompt}
                           editPrompt={editPrompt}
                           onAddTodos={handleAddTodos}
+                          calendarContext={calendarContext}
                         />
                       ))}
 
@@ -818,6 +828,7 @@ function DiaryApp() {
                           systemPrompt={systemPrompt}
                           editPrompt={editPrompt}
                           onAddTodos={handleAddTodos}
+                          calendarContext={calendarContext}
                         />
                       ))}
                   </div>
@@ -874,6 +885,7 @@ function DiaryApp() {
             onSignOut={handleCalendarSignOut}
             isConfigured={isCalendarConfigured}
             onCreateNote={createCalendarScheduleNote}
+            onCalendarContextChange={setCalendarContext}
             onAddEvent={(date, startTime = null) => {
               setTodoToSchedule(null);
               setCalendarActionDate(date);

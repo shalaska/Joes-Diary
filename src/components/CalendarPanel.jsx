@@ -42,7 +42,7 @@ const layoutTimedEvents = (events) => {
     });
 };
 
-const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote }) => {
+const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote, onCalendarContextChange }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [events, setEvents] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -57,9 +57,11 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
 
         setIsLoading(true);
         setError(null);
+        onCalendarContextChange?.(null);
         try {
             const fetchedEvents = await listEventsForDay(currentDate);
             setEvents(fetchedEvents);
+            onCalendarContextChange?.({ date: currentDate.toISOString(), events: fetchedEvents });
         } catch (err) {
             console.error("Calendar fetch error:", err);
             // Check for 401 Unauthorized
@@ -69,6 +71,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
             } else {
                 setError("Failed to load events. Please try again.");
             }
+            onCalendarContextChange?.(null);
         } finally {
             setIsLoading(false);
         }
@@ -79,6 +82,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
             fetchEvents();
         } else {
             setEvents([]);
+            onCalendarContextChange?.(null);
         }
     }, [isSignedIn, currentDate]);
 

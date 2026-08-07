@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Save, Sparkles, Trash2, ListTodo } from 'lucide-react';
-import { askGemini, editSelection, extractTodos } from '../services/geminiService';
+import { askGemini, editSelection, extractTodos, formatCalendarContext } from '../services/geminiService';
 import GeminiPanel from './GeminiPanel';
 import FloatingGeminiMenu from './FloatingGeminiMenu';
 import SimpleMarkdownRenderer from './SimpleMarkdownRenderer';
 
-const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, apiKey, systemPrompt, editPrompt, onAddTodos }) => {
+const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, apiKey, systemPrompt, editPrompt, onAddTodos, calendarContext }) => {
     const [content, setContent] = useState(initialContent || '');
     const [isSaving, setIsSaving] = useState(false);
     const [geminiState, setGeminiState] = useState({ loading: false, suggestion: null });
@@ -135,7 +135,12 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
     const handleConfirmAsk = async (customPrompt) => {
         setGeminiState({ loading: true, suggestion: null, isWaitingForPrompt: false });
 
-        const finalPrompt = customPrompt ? `Context: """${content}"""\n\nQuestion: ${customPrompt}` : content;
+        const visibleCalendarContext = formatCalendarContext(calendarContext);
+        const noteContext = `Diary note context:\n"""${content}"""`;
+        const fullContext = visibleCalendarContext
+            ? `${noteContext}\n\n${visibleCalendarContext}`
+            : noteContext;
+        const finalPrompt = customPrompt ? `${fullContext}\n\nQuestion: ${customPrompt}` : fullContext;
 
         try {
             const suggestion = await askGemini(finalPrompt, [], apiKey, systemPrompt);
@@ -169,7 +174,11 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
         setChatHistory(newHistory);
 
         try {
-            const suggestion = await askGemini(replyText, newHistory, apiKey, systemPrompt);
+            const visibleCalendarContext = formatCalendarContext(calendarContext);
+            const contextualReply = visibleCalendarContext
+                ? `${visibleCalendarContext}\n\nUser follow-up: ${replyText}`
+                : replyText;
+            const suggestion = await askGemini(contextualReply, chatHistory, apiKey, systemPrompt);
             setGeminiState({ loading: false, suggestion });
             setChatHistory(prev => [...prev, { role: 'model', content: suggestion.content }]);
         } catch (error) {
@@ -216,9 +225,13 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
         setGeminiState({ loading: true, suggestion: null });
 
         // Construct the prompt for Gemini
+        const visibleCalendarContext = formatCalendarContext(calendarContext);
+        const promptContext = visibleCalendarContext
+            ? `Selected note text: """${selectedText}"""\n\n${visibleCalendarContext}`
+            : `Selected note text: """${selectedText}"""`;
         const prompt = query
-            ? `Context: """${selectedText}"""\n\nQuestion: ${query}`
-            : `Context: """${selectedText}"""\n\nI want to discuss this text.`;
+            ? `${promptContext}\n\nQuestion: ${query}`
+            : `${promptContext}\n\nI want to discuss this text.`;
 
         // Construct the display message for the user (cleaner)
         const displayMessage = query

@@ -41,6 +41,37 @@ const getModel = (apiKey) => {
     return genAI.getGenerativeModel({ model: "gemini-flash-latest" });
 };
 
+export const formatCalendarContext = (calendarContext) => {
+    if (!calendarContext || !Array.isArray(calendarContext.events)) return '';
+
+    const contextDate = new Date(calendarContext.date);
+    const dateLabel = Number.isNaN(contextDate.getTime())
+        ? 'the visible day'
+        : contextDate.toLocaleDateString(undefined, {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+        });
+
+    const eventLines = calendarContext.events.map((event) => {
+        const isAllDay = !event.start?.dateTime;
+        const start = new Date(event.start?.dateTime || event.start?.date);
+        const end = new Date(event.end?.dateTime || event.end?.date);
+        const time = isAllDay
+            ? 'All day'
+            : `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}–${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+        const location = event.location ? `; location: ${event.location}` : '';
+        return `- ${time}: ${event.summary || '(No title)'}${location}`;
+    });
+
+    return [
+        `Visible Google Calendar schedule for ${dateLabel}:`,
+        'Treat these as scheduled plans, not proof that they happened.',
+        eventLines.length ? eventLines.join('\n') : '- No events scheduled.',
+    ].join('\n');
+};
+
 export const askGemini = async (text, history = [], apiKey, systemPrompt) => {
     if (!apiKey) {
         console.warn("Gemini API Key is missing.");
