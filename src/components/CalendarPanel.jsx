@@ -48,7 +48,7 @@ const layoutTimedEvents = (events) => {
     });
 };
 
-const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote, onCalendarContextChange }) => {
+const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote, onCalendarContextChange, refreshKey }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [events, setEvents] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -91,7 +91,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
             setEvents([]);
             onCalendarContextChange?.(null);
         }
-    }, [isSignedIn, currentDate]);
+    }, [isSignedIn, currentDate, refreshKey]);
 
     useEffect(() => {
         if (viewMode !== 'hours' || !contentRef.current) return;

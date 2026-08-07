@@ -56,6 +56,7 @@ function DiaryApp() {
   const [isCalendarSignedIn, setIsCalendarSignedIn] = useState(false);
   const [isCalendarConfigured, setIsCalendarConfigured] = useState(false);
   const [calendarContext, setCalendarContext] = useState(null);
+  const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
 
   // Todo Scheduling State
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
@@ -158,12 +159,12 @@ function DiaryApp() {
 
   const handleConfirmSchedule = async (eventDetails) => {
     try {
-      await addEvent(eventDetails);
-      // Ideally we show a success message or notification
-      alert("Event scheduled successfully!");
+      const createdEvent = await addEvent(eventDetails);
+      setCalendarRefreshKey(previous => previous + 1);
+      return createdEvent;
     } catch (error) {
       console.error("Failed to schedule event", error);
-      alert("Failed to schedule event. Please check your calendar connection.");
+      throw error;
     }
   };
 
@@ -886,6 +887,7 @@ function DiaryApp() {
             isConfigured={isCalendarConfigured}
             onCreateNote={createCalendarScheduleNote}
             onCalendarContextChange={setCalendarContext}
+            refreshKey={calendarRefreshKey}
             onAddEvent={(date, startTime = null) => {
               setTodoToSchedule(null);
               setCalendarActionDate(date);

@@ -14,6 +14,8 @@ const ScheduleTodoModal = ({ isOpen, onClose, onSchedule, todoTitle, initialDate
     const [startTime, setStartTime] = useState('');
     const [duration, setDuration] = useState(60); // Default 1 hour
     const [isAllDay, setIsAllDay] = useState(false);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [submitError, setSubmitError] = useState('');
 
     useEffect(() => {
         if (isOpen) {
@@ -41,10 +43,12 @@ const ScheduleTodoModal = ({ isOpen, onClose, onSchedule, todoTitle, initialDate
             }
             setDuration(60);
             setIsAllDay(false);
+            setIsSubmitting(false);
+            setSubmitError('');
         }
     }, [isOpen, todoTitle, initialDate, initialStartTime]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
 
         if (!date || (!isAllDay && !startTime) || !summary.trim()) return;
@@ -75,8 +79,17 @@ const ScheduleTodoModal = ({ isOpen, onClose, onSchedule, todoTitle, initialDate
             };
         }
 
-        onSchedule(eventObject);
-        onClose();
+        setIsSubmitting(true);
+        setSubmitError('');
+        try {
+            await onSchedule(eventObject);
+            onClose();
+        } catch (error) {
+            console.error('Unable to schedule event:', error);
+            setSubmitError('Could not add this event. Check your calendar connection and try again.');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     if (!isOpen) return null;
@@ -178,12 +191,17 @@ const ScheduleTodoModal = ({ isOpen, onClose, onSchedule, todoTitle, initialDate
                         </button>
                         <button
                             type="submit"
-                            disabled={!summary.trim() || (!date) || (!isAllDay && !startTime)}
+                            disabled={isSubmitting || !summary.trim() || (!date) || (!isAllDay && !startTime)}
                             className="flex-1 bg-indigo-600 text-white px-6 py-3 rounded-xl font-medium hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            Schedule
+                            {isSubmitting ? 'Adding…' : 'Schedule'}
                         </button>
                     </div>
+                    {submitError && (
+                        <p className="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+                            {submitError}
+                        </p>
+                    )}
                 </form>
             </div>
         </div>
