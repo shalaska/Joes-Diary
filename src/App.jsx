@@ -60,6 +60,7 @@ function DiaryApp() {
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [todoToSchedule, setTodoToSchedule] = useState(null);
   const [calendarActionDate, setCalendarActionDate] = useState(null);
+  const [calendarActionTime, setCalendarActionTime] = useState(null);
 
   // Global Gemini State
   const [globalGemini, setGlobalGemini] = useState({ loading: false, suggestion: null });
@@ -873,13 +874,10 @@ function DiaryApp() {
             onSignOut={handleCalendarSignOut}
             isConfigured={isCalendarConfigured}
             onCreateNote={createCalendarScheduleNote}
-            onAddEvent={(date) => {
-              setTodoToSchedule(null); // Clear todo context
-              // We need a state for the specific date clicked in calendar
-              // Reuse 'selectedDate' prop of modal? Or add a new one?
-              // The Modal currently takes 'initialDate'.
-              // Let's add a state 'calendarActionDate'
+            onAddEvent={(date, startTime = null) => {
+              setTodoToSchedule(null);
               setCalendarActionDate(date);
+              setCalendarActionTime(startTime);
               setIsScheduleModalOpen(true);
             }}
           />
@@ -906,10 +904,12 @@ function DiaryApp() {
         onClose={() => {
           setIsScheduleModalOpen(false);
           setCalendarActionDate(null);
+          setCalendarActionTime(null);
         }}
         onSchedule={handleConfirmSchedule}
         todoTitle={todoToSchedule ? todoToSchedule.text : ''}
         initialDate={calendarActionDate || selectedDate} // prioritize calendar action, fallback to diary date
+        initialStartTime={calendarActionTime}
       />
     </div>
   );

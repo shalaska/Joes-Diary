@@ -1,6 +1,46 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, Sparkles, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, Sparkles, CheckCircle2, List, Clock3 } from 'lucide-react';
 import { listEventsForDay } from '../services/googleCalendarService';
+
+const HOUR_HEIGHT = 64;
+const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+
+const formatHour = (hour) => new Date(2000, 0, 1, hour).toLocaleTimeString([], {
+    hour: 'numeric',
+});
+
+const layoutTimedEvents = (events) => {
+    const timedEvents = events
+        .filter((event) => event.start.dateTime)
+        .map((event) => ({
+            event,
+            start: new Date(event.start.dateTime),
+            end: new Date(event.end.dateTime),
+            lane: 0,
+        }))
+        .sort((a, b) => a.start - b.start);
+
+    timedEvents.forEach((item, index) => {
+        const occupiedLanes = new Set(
+            timedEvents
+                .slice(0, index)
+                .filter((previous) => item.start < previous.end && item.end > previous.start)
+                .map((previous) => previous.lane),
+        );
+
+        while (occupiedLanes.has(item.lane)) item.lane += 1;
+    });
+
+    return timedEvents.map((item) => {
+        const overlapping = timedEvents.filter((other) => (
+            item.start < other.end && item.end > other.start
+        ));
+        return {
+            ...item,
+            laneCount: Math.max(...overlapping.map((other) => other.lane)) + 1,
+        };
+    });
+};
 
 const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -9,6 +49,8 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     const [error, setError] = useState(null);
     const [isCreatingNote, setIsCreatingNote] = useState(false);
     const [noteMessage, setNoteMessage] = useState('');
+    const [viewMode, setViewMode] = useState(() => localStorage.getItem('calendar_view_mode') || 'agenda');
+    const contentRef = useRef(null);
 
     const fetchEvents = async () => {
         if (!isSignedIn) return;
@@ -39,6 +81,26 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
             setEvents([]);
         }
     }, [isSignedIn, currentDate]);
+
+    useEffect(() => {
+        localStorage.setItem('calendar_view_mode', viewMode);
+
+        if (viewMode !== 'hours' || !contentRef.current) return;
+
+        const timedEventHours = events
+            .filter((event) => event.start.dateTime)
+            .map((event) => new Date(event.start.dateTime).getHours());
+        const firstVisibleHour = timedEventHours.length ? Math.max(Math.min(...timedEventHours) - 1, 0) : 7;
+
+        requestAnimationFrame(() => {
+            if (contentRef.current) contentRef.current.scrollTop = firstVisibleHour * HOUR_HEIGHT;
+        });
+    }, [viewMode, events, currentDate]);
+
+    const handleHourClick = (hour) => {
+        const startTime = `${String(hour).padStart(2, '0')}:00`;
+        onAddEvent(currentDate, startTime);
+    };
 
     const handlePrevDay = () => {
         const newDate = new Date(currentDate);
@@ -112,6 +174,8 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
         );
     }
 
+    const timedEventLayout = layoutTimedEvents(events);
+
     return (
         <div className="bg-white rounded-xl border border-slate-200 flex flex-col h-full overflow-hidden">
             {/* Header */}
@@ -162,6 +226,33 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                     </button>
                 </div>
 
+                <div className="grid grid-cols-2 gap-1 rounded-lg border border-slate-200 bg-white p-1" aria-label="Schedule view">
+                    <button
+                        type="button"
+                        onClick={() => setViewMode('agenda')}
+                        className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${viewMode === 'agenda'
+                            ? 'bg-indigo-50 text-indigo-700 shadow-sm'
+                            : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                            }`}
+                        aria-pressed={viewMode === 'agenda'}
+                    >
+                        <List size={14} />
+                        Agenda
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setViewMode('hours')}
+                        className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${viewMode === 'hours'
+                            ? 'bg-indigo-50 text-indigo-700 shadow-sm'
+                            : 'text-slate-500 hover:bg-slate-50 hover:text-slate-700'
+                            }`}
+                        aria-pressed={viewMode === 'hours'}
+                    >
+                        <Clock3 size={14} />
+                        Hours
+                    </button>
+                </div>
+
                 <button
                     onClick={handleCreateNote}
                     disabled={isLoading || isCreatingNote || events.length === 0}
@@ -174,7 +265,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto p-4">
+            <div ref={contentRef} className="flex-1 overflow-y-auto p-4">
                 {error && (
                     <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-start gap-2 text-red-700 text-sm">
                         <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
@@ -195,34 +286,95 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                     </div>
                 )}
 
-                <div className="space-y-3">
-                    {events.map((event) => {
-                        const start = new Date(event.start.dateTime || event.start.date);
-                        const end = new Date(event.end.dateTime || event.end.date);
-                        const isAllDay = !event.start.dateTime;
+                {viewMode === 'agenda' ? (
+                    <div className="space-y-3">
+                        {events.map((event) => {
+                            const start = new Date(event.start.dateTime || event.start.date);
+                            const end = new Date(event.end.dateTime || event.end.date);
+                            const isAllDay = !event.start.dateTime;
 
-                        return (
-                            <div key={event.id} className="group p-3 rounded-lg border border-slate-100 hover:border-indigo-200 hover:bg-slate-50 transition-all flex gap-3">
-                                <div className="flex flex-col items-center justify-start pt-1 min-w-[3rem] text-xs text-slate-500 font-medium">
-                                    {isAllDay ? (
-                                        <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide">All Day</span>
-                                    ) : (
-                                        <>
-                                            <span>{start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                            <span className="text-[10px] text-slate-400">{end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                        </>
-                                    )}
+                            return (
+                                <div key={event.id} className="group p-3 rounded-lg border border-slate-100 hover:border-indigo-200 hover:bg-slate-50 transition-all flex gap-3">
+                                    <div className="flex flex-col items-center justify-start pt-1 min-w-[3rem] text-xs text-slate-500 font-medium">
+                                        {isAllDay ? (
+                                            <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] uppercase tracking-wide">All Day</span>
+                                        ) : (
+                                            <>
+                                                <span>{start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                <span className="text-[10px] text-slate-400">{end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                            </>
+                                        )}
+                                    </div>
+                                    <div className="flex-1 border-l-2 border-indigo-200 pl-3">
+                                        <h4 className="text-sm font-medium text-slate-800 leading-tight mb-1">{event.summary || '(No Title)'}</h4>
+                                        {event.location && (
+                                            <p className="text-xs text-slate-500 truncate">{event.location}</p>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="flex-1 border-l-2 border-indigo-200 pl-3">
-                                    <h4 className="text-sm font-medium text-slate-800 leading-tight mb-1">{event.summary || '(No Title)'}</h4>
-                                    {event.location && (
-                                        <p className="text-xs text-slate-500 truncate">{event.location}</p>
-                                    )}
-                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div>
+                        {events.some((event) => !event.start.dateTime) && (
+                            <div className="mb-3 rounded-lg border border-indigo-100 bg-indigo-50/60 p-2">
+                                <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-500">All day</p>
+                                {events.filter((event) => !event.start.dateTime).map((event) => (
+                                    <p key={event.id} className="truncate text-xs font-medium text-indigo-900">{event.summary || '(No Title)'}</p>
+                                ))}
                             </div>
-                        );
-                    })}
-                </div>
+                        )}
+                        <p className="mb-2 text-center text-[11px] text-slate-400">Tap an hour to add an event</p>
+                        <div className="relative" style={{ height: `${24 * HOUR_HEIGHT}px` }}>
+                            {HOURS.map((hour) => (
+                                <button
+                                    key={hour}
+                                    type="button"
+                                    onClick={() => handleHourClick(hour)}
+                                    className="group absolute inset-x-0 text-left"
+                                    style={{ top: `${hour * HOUR_HEIGHT}px`, height: `${HOUR_HEIGHT}px` }}
+                                    title={`Add an event at ${formatHour(hour)}`}
+                                >
+                                    <span className="absolute left-0 top-[-7px] w-12 text-right text-[10px] font-medium text-slate-400 group-hover:text-indigo-600">
+                                        {formatHour(hour)}
+                                    </span>
+                                    <span className="absolute left-14 right-0 top-0 border-t border-slate-200 group-hover:border-indigo-300" />
+                                    <span className="absolute bottom-1 left-14 right-0 top-1 rounded-md bg-indigo-50/0 transition-colors group-hover:bg-indigo-50/70" />
+                                </button>
+                            ))}
+
+                            <div className="pointer-events-none absolute inset-y-0 left-14 right-0">
+                                {timedEventLayout.map(({ event, start, end, lane, laneCount }) => {
+                                    const startMinutes = (start.getHours() * 60) + start.getMinutes();
+                                    const durationMinutes = Math.max((end - start) / 60000, 15);
+                                    const top = (startMinutes / 60) * HOUR_HEIGHT;
+                                    const height = Math.max((durationMinutes / 60) * HOUR_HEIGHT, 28);
+
+                                    return (
+                                        <div
+                                            key={event.id}
+                                            className="absolute z-10 overflow-hidden rounded-md border border-indigo-300 bg-indigo-100 px-2 py-1 text-indigo-950 shadow-sm"
+                                            style={{
+                                                top: `${top}px`,
+                                                height: `${height}px`,
+                                                left: `${(lane / laneCount) * 100}%`,
+                                                width: `calc(${100 / laneCount}% - 0.25rem)`,
+                                            }}
+                                        >
+                                            <p className="truncate text-[11px] font-semibold leading-tight">{event.summary || '(No Title)'}</p>
+                                            {height >= 42 && (
+                                                <p className="mt-0.5 truncate text-[10px] text-indigo-700">
+                                                    {start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}–{end.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
+                                                </p>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

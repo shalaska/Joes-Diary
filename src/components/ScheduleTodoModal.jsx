@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, Check } from 'lucide-react';
+import { X, Calendar, Clock } from 'lucide-react';
 
-const ScheduleTodoModal = ({ isOpen, onClose, onSchedule, todoTitle, initialDate }) => {
+const isSameDay = (d1, d2) => (
+    d1.getFullYear() === d2.getFullYear()
+    && d1.getMonth() === d2.getMonth()
+    && d1.getDate() === d2.getDate()
+);
+
+const ScheduleTodoModal = ({ isOpen, onClose, onSchedule, todoTitle, initialDate, initialStartTime }) => {
     // We'll use 'summary' for the event title, defaulting to todoTitle or empty
     const [summary, setSummary] = useState('');
     const [date, setDate] = useState('');
@@ -15,9 +21,11 @@ const ScheduleTodoModal = ({ isOpen, onClose, onSchedule, todoTitle, initialDate
             const d = initialDate ? new Date(initialDate) : new Date();
             setDate(d.toISOString().split('T')[0]);
 
-            // Set default time to next hour
+            // Use a selected timeline hour when provided; otherwise choose a sensible default.
             const now = new Date();
-            if (initialDate) {
+            if (initialStartTime) {
+                setStartTime(initialStartTime);
+            } else if (initialDate) {
                 // If specific date passed, keep it, checking if it is today
                 if (isSameDay(d, now)) {
                     const nextHour = new Date(now);
@@ -34,15 +42,7 @@ const ScheduleTodoModal = ({ isOpen, onClose, onSchedule, todoTitle, initialDate
             setDuration(60);
             setIsAllDay(false);
         }
-    }, [isOpen, todoTitle, initialDate]);
-
-    // ... helper for same day check
-    const isSameDay = (d1, d2) => {
-        return d1.getFullYear() === d2.getFullYear() &&
-            d1.getMonth() === d2.getMonth() &&
-            d1.getDate() === d2.getDate();
-    };
-
+    }, [isOpen, todoTitle, initialDate, initialStartTime]);
 
     const handleSubmit = (e) => {
         e.preventDefault();
