@@ -12,6 +12,7 @@ const SettingsModal = ({
     initialEditPrompt,
     initialGoogleClientId,
     initialGoogleApiKey,
+    initialIcsProxyUrl,
     onNotionImport,
     entries,
     dayMetadata
@@ -21,9 +22,10 @@ const SettingsModal = ({
     const [editPrompt, setEditPrompt] = useState(initialEditPrompt || '');
     const [googleClientId, setGoogleClientId] = useState(initialGoogleClientId || '');
     const [googleApiKey, setGoogleApiKey] = useState(initialGoogleApiKey || '');
+    const [icsProxyUrl, setIcsProxyUrl] = useState(initialIcsProxyUrl || '');
 
     const handleSave = () => {
-        onSave(apiKey, systemPrompt, editPrompt, googleClientId, googleApiKey);
+        onSave(apiKey, systemPrompt, editPrompt, googleClientId, googleApiKey, icsProxyUrl);
         onClose();
     };
 
@@ -136,6 +138,32 @@ const SettingsModal = ({
                                 placeholder="Enter your Google API Key"
                                 className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 font-mono text-sm"
                             />
+                        </div>
+                    </div>
+
+                    {/* Outlook ICS Section */}
+                    <div className="space-y-6">
+                        <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Outlook Work Calendar</h3>
+
+                        <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100 text-sm text-emerald-800">
+                            The Cloudflare proxy keeps the private Outlook feed address out of the browser and refreshes it automatically.
+                        </div>
+
+                        <div className="space-y-3">
+                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                <Calendar size={16} className="text-emerald-600" />
+                                Work calendar proxy URL
+                            </label>
+                            <input
+                                type="url"
+                                value={icsProxyUrl}
+                                onChange={(e) => setIcsProxyUrl(e.target.value)}
+                                placeholder="https://joes-diary-ics-proxy.…workers.dev/calendar.ics"
+                                className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 font-mono text-sm"
+                            />
+                            <p className="text-xs text-slate-500">
+                                Store only the Worker URL here—not the private Outlook ICS address.
+                            </p>
                         </div>
                     </div>
 

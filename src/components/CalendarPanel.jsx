@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, Sparkles, CheckCircle2, List, Clock3, Trash2, X } from 'lucide-react';
 import { listCalendars, listEventsForDay } from '../services/googleCalendarService';
+import { fetchIcsEventsForDay, ICS_CALENDAR_COLOR, ICS_CALENDAR_ID, ICS_CALENDAR_NAME } from '../services/icsCalendarService';
 
 const HOUR_HEIGHT = 64;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
@@ -51,7 +52,7 @@ const layoutTimedEvents = (events) => {
     });
 };
 
-const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote, onCalendarContextChange, refreshKey, onDeleteEvent }) => {
+const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote, onCalendarContextChange, refreshKey, onDeleteEvent, icsProxyUrl }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [events, setEvents] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
@@ -76,7 +77,21 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
         setError(null);
         onCalendarContextChange?.(null);
         try {
-            const fetchedEvents = await listEventsForDay(currentDate, selectedCalendarIds);
+            const googleCalendarIds = selectedCalendarIds.filter(calendarId => calendarId !== ICS_CALENDAR_ID);
+            const eventRequests = [];
+            if (googleCalendarIds.length) eventRequests.push(listEventsForDay(currentDate, googleCalendarIds));
+            if (icsProxyUrl && selectedCalendarIds.includes(ICS_CALENDAR_ID)) {
+                eventRequests.push(fetchIcsEventsForDay(icsProxyUrl, currentDate));
+            }
+            const eventResults = await Promise.allSettled(eventRequests);
+            const successfulResults = eventResults
+                .filter(result => result.status === 'fulfilled')
+                .map(result => result.value);
+            if (!successfulResults.length && eventResults.length) throw eventResults[0].reason;
+            if (eventResults.some(result => result.status === 'rejected')) {
+                setError('Some selected calendars could not be refreshed. Other events are still shown.');
+            }
+            const fetchedEvents = successfulResults.flat();
             const calendarById = new Map(calendars.map(calendarItem => [calendarItem.id, calendarItem]));
             const enrichedEvents = fetchedEvents.map(event => ({
                 ...event,
@@ -107,7 +122,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
             setEvents([]);
             onCalendarContextChange?.(null);
         }
-    }, [isSignedIn, currentDate, refreshKey, selectedCalendarIds]);
+    }, [isSignedIn, currentDate, refreshKey, selectedCalendarIds, icsProxyUrl]);
 
     useEffect(() => {
         if (!isSignedIn) {
@@ -120,8 +135,17 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
         const fetchCalendars = async () => {
             setIsLoadingCalendars(true);
             try {
-                const calendarList = await listCalendars();
+                const googleCalendarList = await listCalendars();
                 if (!isActive) return;
+                const calendarList = icsProxyUrl
+                    ? [...googleCalendarList, {
+                        id: ICS_CALENDAR_ID,
+                        summary: ICS_CALENDAR_NAME,
+                        backgroundColor: ICS_CALENDAR_COLOR,
+                        accessRole: 'reader',
+                        _isIcsSubscription: true,
+                    }]
+                    : googleCalendarList;
                 setCalendars(calendarList);
 
                 let savedCalendarIds = [];
@@ -133,7 +157,14 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                 const availableIds = new Set(calendarList.map(calendarItem => calendarItem.id));
                 const validSavedIds = savedCalendarIds.filter(calendarId => availableIds.has(calendarId));
                 const primaryId = calendarList.find(calendarItem => calendarItem.primary)?.id || calendarList[0]?.id;
-                setSelectedCalendarIds(validSavedIds.length ? validSavedIds : (primaryId ? [primaryId] : []));
+                let nextSelectedIds = validSavedIds.length ? validSavedIds : (primaryId ? [primaryId] : []);
+                const lastAutoSelectedProxy = localStorage.getItem('ics_proxy_auto_selected');
+                if (icsProxyUrl && lastAutoSelectedProxy !== icsProxyUrl) {
+                    nextSelectedIds = [...new Set([...nextSelectedIds, ICS_CALENDAR_ID])];
+                    localStorage.setItem('ics_proxy_auto_selected', icsProxyUrl);
+                    localStorage.setItem(CALENDAR_SELECTION_KEY, JSON.stringify(nextSelectedIds));
+                }
+                setSelectedCalendarIds(nextSelectedIds);
             } catch (calendarError) {
                 console.error('Calendar list fetch failed:', calendarError);
                 if (isActive) setError('Failed to load your Google calendars. Please try again.');
@@ -146,7 +177,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
         return () => {
             isActive = false;
         };
-    }, [isSignedIn]);
+    }, [isSignedIn, icsProxyUrl]);
 
     const handleCalendarToggle = (calendarId, checked) => {
         setSelectedCalendarIds(previous => {
@@ -393,7 +424,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                     <span className="truncate">{calendarItem.summary || '(Unnamed calendar)'}</span>
                                     {calendarItem.primary && <span className="ml-auto text-[10px] text-slate-400">Primary</span>}
                                     {!calendarItem.primary && ['reader', 'freeBusyReader'].includes(calendarItem.accessRole) && (
-                                        <span className="ml-auto text-[10px] text-slate-400">Other</span>
+                                        <span className="ml-auto text-[10px] text-slate-400">{calendarItem._isIcsSubscription ? 'Outlook' : 'Other'}</span>
                                     )}
                                 </label>
                             ))}
@@ -608,15 +639,21 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                             >
                                 Cancel
                             </button>
-                            <button
-                                type="button"
-                                onClick={handleDeleteEvent}
-                                disabled={isDeletingEvent}
-                                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {isDeletingEvent ? <RefreshCw size={15} className="animate-spin" /> : <Trash2 size={15} />}
-                                {isDeletingEvent ? 'Deleting…' : 'Delete Event'}
-                            </button>
+                            {selectedEvent._readOnly ? (
+                                <div className="flex flex-1 items-center justify-center rounded-xl bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-500">
+                                    Read-only event
+                                </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={handleDeleteEvent}
+                                    disabled={isDeletingEvent}
+                                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {isDeletingEvent ? <RefreshCw size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                                    {isDeletingEvent ? 'Deleting…' : 'Delete Event'}
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>

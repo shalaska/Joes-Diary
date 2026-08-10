@@ -15,6 +15,8 @@ import { firestoreService } from './firestoreService';
 import { askGemini, editSelection, extractTodos, createCalendarDiaryNote, createCalendarDayShape, createCalendarObservation, formatCalendarContext, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
 import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, deleteEvent, isReady, tryRestoreSession } from './services/googleCalendarService';
 
+const DEFAULT_ICS_PROXY_URL = 'https://joes-diary-ics-proxy.careful-system.workers.dev/calendar.ics';
+
 const buildTodos = (newTodos) => {
   const now = Date.now();
   return newTodos.map((todo, index) => ({
@@ -53,6 +55,7 @@ function DiaryApp() {
   // Google Calendar State
   const [googleClientId, setGoogleClientId] = useState(localStorage.getItem('google_client_id') || '');
   const [googleApiKey, setGoogleApiKey] = useState(localStorage.getItem('google_api_key') || '');
+  const [icsProxyUrl, setIcsProxyUrl] = useState(localStorage.getItem('ics_proxy_url') || import.meta.env.VITE_ICS_PROXY_URL || DEFAULT_ICS_PROXY_URL);
   const [isCalendarSignedIn, setIsCalendarSignedIn] = useState(false);
   const [isCalendarConfigured, setIsCalendarConfigured] = useState(false);
   const [calendarContext, setCalendarContext] = useState(null);
@@ -349,7 +352,7 @@ function DiaryApp() {
     return count;
   };
 
-  const handleSaveSettings = async (newKey, newPrompt, newEditPrompt, newClientId, newGoogleKey) => {
+  const handleSaveSettings = async (newKey, newPrompt, newEditPrompt, newClientId, newGoogleKey, newIcsProxyUrl) => {
     setApiKey(newKey);
     setSystemPrompt(newPrompt);
     setEditPrompt(newEditPrompt);
@@ -365,6 +368,11 @@ function DiaryApp() {
     if (newGoogleKey !== undefined) {
       setGoogleApiKey(newGoogleKey);
       localStorage.setItem('google_api_key', newGoogleKey);
+    }
+    if (newIcsProxyUrl !== undefined) {
+      const normalizedProxyUrl = newIcsProxyUrl.trim();
+      setIcsProxyUrl(normalizedProxyUrl);
+      localStorage.setItem('ics_proxy_url', normalizedProxyUrl);
     }
 
     await firestoreService.saveUserSettings(currentUser.uid, {
@@ -899,6 +907,7 @@ function DiaryApp() {
             onCalendarContextChange={setCalendarContext}
             refreshKey={calendarRefreshKey}
             onDeleteEvent={handleDeleteCalendarEvent}
+            icsProxyUrl={icsProxyUrl}
             onAddEvent={(date, startTime = null) => {
               setTodoToSchedule(null);
               setCalendarActionDate(date);
@@ -918,6 +927,7 @@ function DiaryApp() {
           initialEditPrompt={editPrompt}
           initialGoogleClientId={googleClientId}
           initialGoogleApiKey={googleApiKey}
+          initialIcsProxyUrl={icsProxyUrl}
           onNotionImport={handleNotionImport}
           entries={entries}
           dayMetadata={dayMetadata}
