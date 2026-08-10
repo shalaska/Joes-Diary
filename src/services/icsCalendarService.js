@@ -1,10 +1,21 @@
-import ICAL from 'ical.js';
+import { db } from '../db.js';
 
 export const ICS_CALENDAR_ID = 'outlook-ics';
 export const ICS_CALENDAR_NAME = 'Work';
 export const ICS_CALENDAR_COLOR = '#7CB342';
 
 const overlapsDay = (start, end, dayStart, dayEnd) => start < dayEnd && end > dayStart;
+
+const calendarDayKey = (date) => {
+    const value = new Date(date);
+    return [
+        value.getFullYear(),
+        String(value.getMonth() + 1).padStart(2, '0'),
+        String(value.getDate()).padStart(2, '0'),
+    ].join('-');
+};
+
+const cacheKeyForDate = (date) => `${ICS_CALENDAR_ID}:${calendarDayKey(date)}`;
 
 const toCalendarEvent = (event, startTime, endTime) => {
     const isAllDay = startTime.isDate;
@@ -58,7 +69,8 @@ const expandEventForDay = (event, dayStart, dayEnd) => {
     return occurrences;
 };
 
-export const parseIcsEventsForDay = (icsText, date) => {
+export const parseIcsEventsForDay = async (icsText, date) => {
+    const { default: ICAL } = await import('ical.js');
     const dayStart = new Date(date);
     dayStart.setHours(0, 0, 0, 0);
     const dayEnd = new Date(dayStart);
@@ -81,4 +93,21 @@ export const fetchIcsEventsForDay = async (proxyUrl, date) => {
     const response = await fetch(proxyUrl, { headers: { Accept: 'text/calendar' } });
     if (!response.ok) throw new Error(`ICS proxy returned ${response.status}`);
     return parseIcsEventsForDay(await response.text(), date);
+};
+
+export const getCachedIcsEventsForDay = async (proxyUrl, date) => {
+    if (!proxyUrl) return null;
+    const cached = await db.calendarCache.get(cacheKeyForDate(date));
+    if (!cached || cached.proxyUrl !== proxyUrl || !Array.isArray(cached.events)) return null;
+    return cached;
+};
+
+export const cacheIcsEventsForDay = async (proxyUrl, date, events) => {
+    if (!proxyUrl) return;
+    await db.calendarCache.put({
+        key: cacheKeyForDate(date),
+        proxyUrl,
+        events,
+        updatedAt: new Date().toISOString(),
+    });
 };

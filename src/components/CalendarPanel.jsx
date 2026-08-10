@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, Sparkles, CheckCircle2, List, Clock3, Trash2, X } from 'lucide-react';
 import { listCalendars, listEventsForDay } from '../services/googleCalendarService';
-import { fetchIcsEventsForDay, ICS_CALENDAR_COLOR, ICS_CALENDAR_ID, ICS_CALENDAR_NAME } from '../services/icsCalendarService';
+import { cacheIcsEventsForDay, fetchIcsEventsForDay, getCachedIcsEventsForDay, ICS_CALENDAR_COLOR, ICS_CALENDAR_ID, ICS_CALENDAR_NAME } from '../services/icsCalendarService';
 
 const HOUR_HEIGHT = 64;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
@@ -54,8 +54,11 @@ const layoutTimedEvents = (events) => {
 
 const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEvent, onCreateNote, onCalendarContextChange, refreshKey, onDeleteEvent, icsProxyUrl }) => {
     const [currentDate, setCurrentDate] = useState(new Date());
-    const [events, setEvents] = useState([]);
+    const [googleEvents, setGoogleEvents] = useState([]);
+    const [icsEvents, setIcsEvents] = useState([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [isRefreshingIcs, setIsRefreshingIcs] = useState(false);
+    const [manualRefreshKey, setManualRefreshKey] = useState(0);
     const [error, setError] = useState(null);
     const [isCreatingNote, setIsCreatingNote] = useState(false);
     const [noteMessage, setNoteMessage] = useState('');
@@ -69,60 +72,104 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     const [isCalendarPickerOpen, setIsCalendarPickerOpen] = useState(false);
     const [isLoadingCalendars, setIsLoadingCalendars] = useState(false);
     const contentRef = useRef(null);
-
-    const fetchEvents = async () => {
-        if (!isSignedIn || selectedCalendarIds.length === 0) return;
-
-        setIsLoading(true);
-        setError(null);
-        onCalendarContextChange?.(null);
-        try {
-            const googleCalendarIds = selectedCalendarIds.filter(calendarId => calendarId !== ICS_CALENDAR_ID);
-            const eventRequests = [];
-            if (googleCalendarIds.length) eventRequests.push(listEventsForDay(currentDate, googleCalendarIds));
-            if (icsProxyUrl && selectedCalendarIds.includes(ICS_CALENDAR_ID)) {
-                eventRequests.push(fetchIcsEventsForDay(icsProxyUrl, currentDate));
-            }
-            const eventResults = await Promise.allSettled(eventRequests);
-            const successfulResults = eventResults
-                .filter(result => result.status === 'fulfilled')
-                .map(result => result.value);
-            if (!successfulResults.length && eventResults.length) throw eventResults[0].reason;
-            if (eventResults.some(result => result.status === 'rejected')) {
-                setError('Some selected calendars could not be refreshed. Other events are still shown.');
-            }
-            const fetchedEvents = successfulResults.flat();
-            const calendarById = new Map(calendars.map(calendarItem => [calendarItem.id, calendarItem]));
-            const enrichedEvents = fetchedEvents.map(event => ({
-                ...event,
-                _calendarName: calendarById.get(event._calendarId)?.summary || 'Calendar',
-                _calendarColor: calendarById.get(event._calendarId)?.backgroundColor || '#6366f1',
-            }));
-            setEvents(enrichedEvents);
-            onCalendarContextChange?.({ date: currentDate.toISOString(), events: enrichedEvents });
-        } catch (err) {
-            console.error("Calendar fetch error:", err);
-            // Check for 401 Unauthorized
-            if (err.status === 401 || (err.result && err.result.error && err.result.error.code === 401)) {
-                setError("Session expired. Please sign in again.");
-                if (onSignOut) onSignOut(); // Auto-logout from calendar
-            } else {
-                setError("Failed to load events. Please try again.");
-            }
-            onCalendarContextChange?.(null);
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    const eventRequestIdRef = useRef(0);
+    const events = useMemo(() => [...googleEvents, ...icsEvents].sort((first, second) => {
+        const firstStart = new Date(first.start.dateTime || first.start.date).getTime();
+        const secondStart = new Date(second.start.dateTime || second.start.date).getTime();
+        return firstStart - secondStart;
+    }), [googleEvents, icsEvents]);
 
     useEffect(() => {
-        if (isSignedIn) {
-            fetchEvents();
-        } else {
-            setEvents([]);
+        const requestId = ++eventRequestIdRef.current;
+        if (!isSignedIn || selectedCalendarIds.length === 0) {
+            setGoogleEvents([]);
+            setIcsEvents([]);
+            setIsLoading(false);
+            setIsRefreshingIcs(false);
             onCalendarContextChange?.(null);
+            return undefined;
         }
-    }, [isSignedIn, currentDate, refreshKey, selectedCalendarIds, icsProxyUrl]);
+
+        setError(null);
+        const calendarById = new Map(calendars.map(calendarItem => [calendarItem.id, calendarItem]));
+        const googleCalendarIds = selectedCalendarIds.filter(calendarId => calendarId !== ICS_CALENDAR_ID);
+        const shouldLoadIcs = Boolean(icsProxyUrl && selectedCalendarIds.includes(ICS_CALENDAR_ID));
+
+        if (googleCalendarIds.length) {
+            setIsLoading(true);
+            listEventsForDay(currentDate, googleCalendarIds)
+                .then(fetchedEvents => {
+                    if (eventRequestIdRef.current !== requestId) return;
+                    setGoogleEvents(fetchedEvents.map(event => ({
+                        ...event,
+                        _calendarName: calendarById.get(event._calendarId)?.summary || 'Calendar',
+                        _calendarColor: calendarById.get(event._calendarId)?.backgroundColor || '#6366f1',
+                    })));
+                })
+                .catch(err => {
+                    if (eventRequestIdRef.current !== requestId) return;
+                    console.error('Google Calendar fetch error:', err);
+                    if (err.status === 401 || err.result?.error?.code === 401) {
+                        setError('Session expired. Please sign in again.');
+                        onSignOut?.();
+                    } else {
+                        setError('Google Calendar could not be refreshed. Other events are still shown.');
+                    }
+                })
+                .finally(() => {
+                    if (eventRequestIdRef.current === requestId) setIsLoading(false);
+                });
+        } else {
+            setGoogleEvents([]);
+            setIsLoading(false);
+        }
+
+        if (shouldLoadIcs) {
+            setIcsEvents([]);
+            setIsRefreshingIcs(true);
+
+            const loadIcsEvents = async () => {
+                try {
+                    const cached = await getCachedIcsEventsForDay(icsProxyUrl, currentDate);
+                    if (eventRequestIdRef.current !== requestId) return;
+                    if (cached?.events) setIcsEvents(cached.events);
+                } catch (cacheError) {
+                    console.warn('Work calendar cache could not be read:', cacheError);
+                }
+
+                try {
+                    const fetchedEvents = await fetchIcsEventsForDay(icsProxyUrl, currentDate);
+                    if (eventRequestIdRef.current !== requestId) return;
+                    setIcsEvents(fetchedEvents);
+                    try {
+                        await cacheIcsEventsForDay(icsProxyUrl, currentDate, fetchedEvents);
+                    } catch (cacheError) {
+                        console.warn('Work calendar cache could not be saved:', cacheError);
+                    }
+                } catch (icsError) {
+                    if (eventRequestIdRef.current !== requestId) return;
+                    console.error('Work calendar refresh error:', icsError);
+                    setError(previous => previous || 'Work calendar could not be refreshed. Cached events are still shown when available.');
+                } finally {
+                    if (eventRequestIdRef.current === requestId) setIsRefreshingIcs(false);
+                }
+            };
+
+            loadIcsEvents();
+        } else {
+            setIcsEvents([]);
+            setIsRefreshingIcs(false);
+        }
+
+        return () => {
+            if (eventRequestIdRef.current === requestId) eventRequestIdRef.current += 1;
+        };
+    }, [isSignedIn, currentDate, refreshKey, manualRefreshKey, selectedCalendarIds, icsProxyUrl, calendars]);
+
+    useEffect(() => {
+        if (!isSignedIn || selectedCalendarIds.length === 0) return;
+        onCalendarContextChange?.({ date: currentDate.toISOString(), events });
+    }, [events, currentDate, isSignedIn, selectedCalendarIds, onCalendarContextChange]);
 
     useEffect(() => {
         if (!isSignedIn) {
@@ -330,12 +377,12 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                     </div>
                     <div className="flex items-center gap-1">
                         <button
-                            onClick={fetchEvents}
-                            disabled={isLoading}
+                            onClick={() => setManualRefreshKey(previous => previous + 1)}
+                            disabled={isLoading || isRefreshingIcs}
                             className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors disabled:opacity-50"
                             title="Refresh Events"
                         >
-                            <RefreshCw size={16} className={isLoading ? "animate-spin" : ""} />
+                            <RefreshCw size={16} className={isLoading || isRefreshingIcs ? "animate-spin" : ""} />
                         </button>
                         <button
                             onClick={onSignOut}
@@ -434,7 +481,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
 
                 <button
                     onClick={handleCreateNote}
-                    disabled={isLoading || isCreatingNote || events.length === 0}
+                    disabled={isCreatingNote || events.length === 0}
                     className="w-full flex items-center justify-center gap-2 bg-white border border-indigo-200 text-indigo-700 px-3 py-2 rounded-lg text-xs font-medium hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     title={events.length === 0 ? 'No calendar events to use' : 'Use Gemini to create a diary note from this schedule'}
                 >
@@ -445,6 +492,13 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
 
             {/* Content */}
             <div ref={contentRef} className="flex-1 overflow-y-auto p-4">
+                {isRefreshingIcs && (
+                    <div className="mb-3 flex items-center justify-center gap-1.5 text-[11px] font-medium text-slate-400">
+                        <RefreshCw size={11} className="animate-spin" />
+                        Refreshing Work calendar in the background…
+                    </div>
+                )}
+
                 {error && (
                     <div className="mb-4 p-3 bg-red-50 border border-red-100 rounded-lg flex items-start gap-2 text-red-700 text-sm">
                         <AlertCircle size={16} className="mt-0.5 flex-shrink-0" />
@@ -459,7 +513,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                     </div>
                 )}
 
-                {events.length === 0 && !isLoading && !error && (
+                {events.length === 0 && !isLoading && !isRefreshingIcs && !error && (
                     <div className="text-center py-8 text-slate-400 italic text-sm">
                         No events for {currentDate.toDateString() === new Date().toDateString() ? 'today' : 'this day'}.
                     </div>

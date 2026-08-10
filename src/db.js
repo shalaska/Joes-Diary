@@ -7,6 +7,12 @@ db.version(1).stores({
     trash: 'date, content, deletedAt' // Primary key is date
 });
 
+db.version(2).stores({
+    entries: 'date, content',
+    trash: 'date, content, deletedAt',
+    calendarCache: 'key, updatedAt'
+});
+
 // Migration function
 export const migrateFromLocalStorage = async () => {
     const MIGRATION_KEY = 'diary_migrated_to_dexie';
