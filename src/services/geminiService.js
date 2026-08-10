@@ -64,7 +64,8 @@ export const formatCalendarContext = (calendarContext) => {
             ? 'All day'
             : `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}–${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
         const location = event.location ? `; location: ${event.location}` : '';
-        return `- ${time}: ${event.summary || '(No title)'}${location}`;
+        const calendarName = event._calendarName ? ` [${event._calendarName}]` : '';
+        return `- ${time}: ${event.summary || '(No title)'}${calendarName}${location}`;
     });
 
     return [

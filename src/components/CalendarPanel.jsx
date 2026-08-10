@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, Sparkles, CheckCircle2, List, Clock3, Trash2, X } from 'lucide-react';
-import { listEventsForDay } from '../services/googleCalendarService';
+import { listCalendars, listEventsForDay } from '../services/googleCalendarService';
 
 const HOUR_HEIGHT = 64;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+const CALENDAR_SELECTION_KEY = 'selected_google_calendar_ids';
+
+const getEventKey = (event) => `${event._calendarId || 'primary'}:${event.id}`;
 
 const formatHour = (hour) => new Date(2000, 0, 1, hour).toLocaleTimeString([], {
     hour: 'numeric',
@@ -60,18 +63,28 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     const [selectedEvent, setSelectedEvent] = useState(null);
     const [isDeletingEvent, setIsDeletingEvent] = useState(false);
     const [deleteError, setDeleteError] = useState('');
+    const [calendars, setCalendars] = useState([]);
+    const [selectedCalendarIds, setSelectedCalendarIds] = useState([]);
+    const [isCalendarPickerOpen, setIsCalendarPickerOpen] = useState(false);
+    const [isLoadingCalendars, setIsLoadingCalendars] = useState(false);
     const contentRef = useRef(null);
 
     const fetchEvents = async () => {
-        if (!isSignedIn) return;
+        if (!isSignedIn || selectedCalendarIds.length === 0) return;
 
         setIsLoading(true);
         setError(null);
         onCalendarContextChange?.(null);
         try {
-            const fetchedEvents = await listEventsForDay(currentDate);
-            setEvents(fetchedEvents);
-            onCalendarContextChange?.({ date: currentDate.toISOString(), events: fetchedEvents });
+            const fetchedEvents = await listEventsForDay(currentDate, selectedCalendarIds);
+            const calendarById = new Map(calendars.map(calendarItem => [calendarItem.id, calendarItem]));
+            const enrichedEvents = fetchedEvents.map(event => ({
+                ...event,
+                _calendarName: calendarById.get(event._calendarId)?.summary || 'Calendar',
+                _calendarColor: calendarById.get(event._calendarId)?.backgroundColor || '#6366f1',
+            }));
+            setEvents(enrichedEvents);
+            onCalendarContextChange?.({ date: currentDate.toISOString(), events: enrichedEvents });
         } catch (err) {
             console.error("Calendar fetch error:", err);
             // Check for 401 Unauthorized
@@ -94,7 +107,57 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
             setEvents([]);
             onCalendarContextChange?.(null);
         }
-    }, [isSignedIn, currentDate, refreshKey]);
+    }, [isSignedIn, currentDate, refreshKey, selectedCalendarIds]);
+
+    useEffect(() => {
+        if (!isSignedIn) {
+            setCalendars([]);
+            setSelectedCalendarIds([]);
+            return;
+        }
+
+        let isActive = true;
+        const fetchCalendars = async () => {
+            setIsLoadingCalendars(true);
+            try {
+                const calendarList = await listCalendars();
+                if (!isActive) return;
+                setCalendars(calendarList);
+
+                let savedCalendarIds = [];
+                try {
+                    savedCalendarIds = JSON.parse(localStorage.getItem(CALENDAR_SELECTION_KEY) || '[]');
+                } catch {
+                    savedCalendarIds = [];
+                }
+                const availableIds = new Set(calendarList.map(calendarItem => calendarItem.id));
+                const validSavedIds = savedCalendarIds.filter(calendarId => availableIds.has(calendarId));
+                const primaryId = calendarList.find(calendarItem => calendarItem.primary)?.id || calendarList[0]?.id;
+                setSelectedCalendarIds(validSavedIds.length ? validSavedIds : (primaryId ? [primaryId] : []));
+            } catch (calendarError) {
+                console.error('Calendar list fetch failed:', calendarError);
+                if (isActive) setError('Failed to load your Google calendars. Please try again.');
+            } finally {
+                if (isActive) setIsLoadingCalendars(false);
+            }
+        };
+
+        fetchCalendars();
+        return () => {
+            isActive = false;
+        };
+    }, [isSignedIn]);
+
+    const handleCalendarToggle = (calendarId, checked) => {
+        setSelectedCalendarIds(previous => {
+            const next = checked
+                ? [...new Set([...previous, calendarId])]
+                : previous.filter(selectedId => selectedId !== calendarId);
+            if (next.length === 0) return previous;
+            localStorage.setItem(CALENDAR_SELECTION_KEY, JSON.stringify(next));
+            return next;
+        });
+    };
 
     useEffect(() => {
         if (viewMode !== 'hours' || !contentRef.current) return;
@@ -139,7 +202,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
         setIsDeletingEvent(true);
         setDeleteError('');
         try {
-            await onDeleteEvent(selectedEvent.id);
+            await onDeleteEvent(selectedEvent.id, selectedEvent._calendarId || 'primary');
             setSelectedEvent(null);
         } catch (eventDeleteError) {
             console.error('Calendar event deletion failed:', eventDeleteError);
@@ -302,6 +365,39 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                     </button>
                 </div>
 
+                <div className="relative">
+                    <button
+                        type="button"
+                        onClick={() => setIsCalendarPickerOpen(previous => !previous)}
+                        className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 hover:border-indigo-200 hover:text-indigo-700"
+                        aria-expanded={isCalendarPickerOpen}
+                    >
+                        <span>Calendars</span>
+                        <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-indigo-700">
+                            {selectedCalendarIds.length} selected
+                        </span>
+                    </button>
+                    {isCalendarPickerOpen && (
+                        <div className="mt-2 max-h-44 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+                            {isLoadingCalendars ? (
+                                <p className="px-2 py-1 text-xs text-slate-400">Loading calendars…</p>
+                            ) : calendars.map(calendarItem => (
+                                <label key={calendarItem.id} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-xs text-slate-700 hover:bg-slate-50">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedCalendarIds.includes(calendarItem.id)}
+                                        onChange={(changeEvent) => handleCalendarToggle(calendarItem.id, changeEvent.target.checked)}
+                                        className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                    <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: calendarItem.backgroundColor || '#6366f1' }} />
+                                    <span className="truncate">{calendarItem.summary || '(Unnamed calendar)'}</span>
+                                    {calendarItem.primary && <span className="ml-auto text-[10px] text-slate-400">Primary</span>}
+                                </label>
+                            ))}
+                        </div>
+                    )}
+                </div>
+
                 <button
                     onClick={handleCreateNote}
                     disabled={isLoading || isCreatingNote || events.length === 0}
@@ -344,10 +440,11 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
 
                             return (
                                 <button
-                                    key={event.id}
+                                    key={getEventKey(event)}
                                     type="button"
                                     onClick={() => openEventDetails(event)}
                                     className="group w-full p-3 rounded-lg border border-slate-100 hover:border-indigo-200 hover:bg-slate-50 transition-all flex gap-3 text-left"
+                                    style={{ borderLeftColor: event._calendarColor, borderLeftWidth: '3px' }}
                                     title="Open event options"
                                 >
                                     <div className="flex flex-col items-center justify-start pt-1 min-w-[3rem] text-xs text-slate-500 font-medium">
@@ -365,6 +462,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                         {event.location && (
                                             <p className="text-xs text-slate-500 truncate">{event.location}</p>
                                         )}
+                                        <p className="mt-1 truncate text-[10px] text-slate-400">{event._calendarName}</p>
                                     </div>
                                 </button>
                             );
@@ -377,7 +475,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                 <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-500">All day</p>
                                 {events.filter((event) => !event.start.dateTime).map((event) => (
                                     <button
-                                        key={event.id}
+                                        key={getEventKey(event)}
                                         type="button"
                                         onClick={() => openEventDetails(event)}
                                         className="block w-full truncate rounded px-1 py-0.5 text-left text-xs font-medium text-indigo-900 hover:bg-indigo-100"
@@ -416,7 +514,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
 
                                     return (
                                         <button
-                                            key={event.id}
+                                            key={getEventKey(event)}
                                             type="button"
                                             onClick={(clickEvent) => {
                                                 clickEvent.stopPropagation();
@@ -428,6 +526,8 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                                 height: `${height}px`,
                                                 left: `${(lane / laneCount) * 100}%`,
                                                 width: `calc(${100 / laneCount}% - 0.25rem)`,
+                                                borderLeftColor: event._calendarColor,
+                                                borderLeftWidth: '3px',
                                             }}
                                         >
                                             <p className="truncate text-[11px] font-semibold leading-tight">{event.summary || '(No Title)'}</p>
@@ -478,6 +578,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                             </button>
                         </div>
 
+                        <p className="mt-2 text-xs font-medium text-slate-400">{selectedEvent._calendarName}</p>
                         <p className="mt-3 text-sm text-slate-600">
                             {selectedEvent.start.dateTime ? (
                                 <>

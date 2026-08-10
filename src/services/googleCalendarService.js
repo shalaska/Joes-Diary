@@ -108,7 +108,27 @@ export function tryRestoreSession() {
  * List events for a specific day.
  * @param {Date} date - The date to fetch events for.
  */
-export async function listEventsForDay(date) {
+export async function listCalendars() {
+    if (!gapiInited) throw new Error("GAPI not initialized");
+
+    try {
+        const response = await gapi.client.calendar.calendarList.list({
+            'showDeleted': false,
+            'showHidden': false,
+            'minAccessRole': 'reader',
+        });
+        return (response.result.items || []).sort((first, second) => {
+            if (first.primary) return -1;
+            if (second.primary) return 1;
+            return (first.summary || '').localeCompare(second.summary || '');
+        });
+    } catch (err) {
+        console.error("Error listing calendars", err);
+        throw err;
+    }
+}
+
+export async function listEventsForDay(date, calendarIds = ['primary']) {
     if (!gapiInited) throw new Error("GAPI not initialized");
 
     const startOfDay = new Date(date);
@@ -118,17 +138,28 @@ export async function listEventsForDay(date) {
     endOfDay.setHours(23, 59, 59, 999);
 
     try {
-        const request = {
-            'calendarId': 'primary',
-            'timeMin': startOfDay.toISOString(),
-            'timeMax': endOfDay.toISOString(),
-            'showDeleted': false,
-            'singleEvents': true,
-            'maxResults': 50,
-            'orderBy': 'startTime',
-        };
-        const response = await gapi.client.calendar.events.list(request);
-        return response.result.items;
+        const requestedCalendarIds = calendarIds.length ? calendarIds : ['primary'];
+        const eventGroups = await Promise.all(requestedCalendarIds.map(async (calendarId) => {
+            const response = await gapi.client.calendar.events.list({
+                'calendarId': calendarId,
+                'timeMin': startOfDay.toISOString(),
+                'timeMax': endOfDay.toISOString(),
+                'showDeleted': false,
+                'singleEvents': true,
+                'maxResults': 50,
+                'orderBy': 'startTime',
+            });
+            return (response.result.items || []).map(event => ({
+                ...event,
+                _calendarId: calendarId,
+            }));
+        }));
+
+        return eventGroups.flat().sort((first, second) => {
+            const firstStart = new Date(first.start.dateTime || first.start.date).getTime();
+            const secondStart = new Date(second.start.dateTime || second.start.date).getTime();
+            return firstStart - secondStart;
+        });
     } catch (err) {
         console.error("Error listing events", err);
         throw err;
@@ -156,13 +187,13 @@ export async function addEvent(event) {
 /**
  * Delete an event from the primary calendar.
  */
-export async function deleteEvent(eventId) {
+export async function deleteEvent(eventId, calendarId = 'primary') {
     if (!gapiInited) throw new Error("GAPI not initialized");
     if (!eventId) throw new Error("Event ID is required");
 
     try {
         await gapi.client.calendar.events.delete({
-            'calendarId': 'primary',
+            'calendarId': calendarId,
             'eventId': eventId,
         });
     } catch (err) {

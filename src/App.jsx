@@ -168,9 +168,9 @@ function DiaryApp() {
     }
   };
 
-  const handleDeleteCalendarEvent = async (eventId) => {
+  const handleDeleteCalendarEvent = async (eventId, calendarId) => {
     try {
-      await deleteEvent(eventId);
+      await deleteEvent(eventId, calendarId);
       setCalendarRefreshKey(previous => previous + 1);
     } catch (error) {
       console.error("Failed to delete event", error);
