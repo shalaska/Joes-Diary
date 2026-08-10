@@ -14,6 +14,7 @@ import { db as localDB } from './db';
 import { firestoreService } from './firestoreService';
 import { askGemini, editSelection, extractTodos, createCalendarDiaryNote, createCalendarDayShape, createCalendarObservation, formatCalendarContext, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
 import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, deleteEvent, isReady, tryRestoreSession } from './services/googleCalendarService';
+import { findDiaryGroupForCalendarDate } from './utils/diaryGroups';
 
 const DEFAULT_ICS_PROXY_URL = 'https://joes-diary-ics-proxy.careful-system.workers.dev/calendar.ics';
 
@@ -419,12 +420,8 @@ function DiaryApp() {
   const createCalendarScheduleNote = async (calendarDate, calendarEvents) => {
     const targetDate = new Date(calendarDate);
     const targetDay = targetDate.toDateString();
-    const existingGroup = Object.entries(groupedEntries).find(([groupId, groupEntries]) => {
-      const groupMatches = !Number.isNaN(new Date(groupId).getTime()) && new Date(groupId).toDateString() === targetDay;
-      const entryMatches = groupEntries.some(entry => new Date(entry.date).toDateString() === targetDay);
-      return groupMatches || entryMatches;
-    });
-    const groupId = existingGroup?.[0] || targetDay;
+    const existingGroupId = findDiaryGroupForCalendarDate(groupedEntries, selectedDate, targetDate);
+    const groupId = existingGroupId || targetDay;
 
     const scheduleLines = calendarEvents.map(event => {
       const isAllDay = !event.start?.dateTime;
@@ -452,7 +449,7 @@ function DiaryApp() {
     await refreshEntries();
     setSelectedDate(groupId);
     setView('diary');
-    return { createdNewDay: !existingGroup };
+    return { createdNewDay: !existingGroupId };
   };
 
   const deleteEntry = async (entryDate) => {
