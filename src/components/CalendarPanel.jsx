@@ -392,6 +392,9 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                     <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: calendarItem.backgroundColor || '#6366f1' }} />
                                     <span className="truncate">{calendarItem.summary || '(Unnamed calendar)'}</span>
                                     {calendarItem.primary && <span className="ml-auto text-[10px] text-slate-400">Primary</span>}
+                                    {!calendarItem.primary && ['reader', 'freeBusyReader'].includes(calendarItem.accessRole) && (
+                                        <span className="ml-auto text-[10px] text-slate-400">Other</span>
+                                    )}
                                 </label>
                             ))}
                         </div>

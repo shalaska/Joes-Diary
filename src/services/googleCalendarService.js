@@ -114,8 +114,8 @@ export async function listCalendars() {
     try {
         const response = await gapi.client.calendar.calendarList.list({
             'showDeleted': false,
-            'showHidden': false,
-            'minAccessRole': 'reader',
+            // Include subscribed calendars from Google Calendar's "Other calendars" section.
+            'showHidden': true,
         });
         return (response.result.items || []).sort((first, second) => {
             if (first.primary) return -1;
@@ -139,7 +139,7 @@ export async function listEventsForDay(date, calendarIds = ['primary']) {
 
     try {
         const requestedCalendarIds = calendarIds.length ? calendarIds : ['primary'];
-        const eventGroups = await Promise.all(requestedCalendarIds.map(async (calendarId) => {
+        const eventResults = await Promise.allSettled(requestedCalendarIds.map(async (calendarId) => {
             const response = await gapi.client.calendar.events.list({
                 'calendarId': calendarId,
                 'timeMin': startOfDay.toISOString(),
@@ -154,6 +154,17 @@ export async function listEventsForDay(date, calendarIds = ['primary']) {
                 _calendarId: calendarId,
             }));
         }));
+
+        const eventGroups = eventResults
+            .filter(result => result.status === 'fulfilled')
+            .map(result => result.value);
+        const failedCalendarCount = eventResults.length - eventGroups.length;
+        if (failedCalendarCount > 0) {
+            console.warn(`Could not read events from ${failedCalendarCount} selected calendar(s).`);
+        }
+        if (eventGroups.length === 0 && eventResults.length > 0) {
+            throw eventResults[0].reason;
+        }
 
         return eventGroups.flat().sort((first, second) => {
             const firstStart = new Date(first.start.dateTime || first.start.date).getTime();
