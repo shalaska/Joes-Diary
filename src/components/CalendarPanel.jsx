@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, Sparkles, CheckCircle2, List, Clock3, Trash2, X } from 'lucide-react';
 import { listCalendars, listEventsForDay } from '../services/googleCalendarService';
 import { cacheIcsEventsForDay, fetchIcsEventsForDay, getCachedIcsEventsForDay, ICS_CALENDAR_COLOR, ICS_CALENDAR_ID, ICS_CALENDAR_NAME } from '../services/icsCalendarService';
+import { filterEventsForAi, getAiExcludedCalendarIds, saveAiExcludedCalendarIds } from '../utils/aiCalendarPrivacy';
 
 const HOUR_HEIGHT = 64;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
@@ -71,6 +72,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     const [selectedCalendarIds, setSelectedCalendarIds] = useState([]);
     const [isCalendarPickerOpen, setIsCalendarPickerOpen] = useState(false);
     const [isLoadingCalendars, setIsLoadingCalendars] = useState(false);
+    const [aiExcludedCalendarIds, setAiExcludedCalendarIds] = useState(() => getAiExcludedCalendarIds());
     const contentRef = useRef(null);
     const eventRequestIdRef = useRef(0);
     const events = useMemo(() => [...googleEvents, ...icsEvents].sort((first, second) => {
@@ -78,6 +80,8 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
         const secondStart = new Date(second.start.dateTime || second.start.date).getTime();
         return firstStart - secondStart;
     }), [googleEvents, icsEvents]);
+    // Only events from calendars allowed for AI are ever passed to Gemini.
+    const aiEvents = useMemo(() => filterEventsForAi(events, aiExcludedCalendarIds), [events, aiExcludedCalendarIds]);
 
     useEffect(() => {
         const requestId = ++eventRequestIdRef.current;
@@ -168,8 +172,8 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
 
     useEffect(() => {
         if (!isSignedIn || selectedCalendarIds.length === 0) return;
-        onCalendarContextChange?.({ date: currentDate.toISOString(), events });
-    }, [events, currentDate, isSignedIn, selectedCalendarIds, onCalendarContextChange]);
+        onCalendarContextChange?.({ date: currentDate.toISOString(), events: aiEvents });
+    }, [aiEvents, currentDate, isSignedIn, selectedCalendarIds, onCalendarContextChange]);
 
     useEffect(() => {
         if (!isSignedIn) {
@@ -225,6 +229,16 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
             isActive = false;
         };
     }, [isSignedIn, icsProxyUrl]);
+
+    const handleAiToggle = (calendarId) => {
+        setAiExcludedCalendarIds(previous => {
+            const next = previous.includes(calendarId)
+                ? previous.filter(excludedId => excludedId !== calendarId)
+                : [...previous, calendarId];
+            saveAiExcludedCalendarIds(next);
+            return next;
+        });
+    };
 
     const handleCalendarToggle = (calendarId, checked) => {
         setSelectedCalendarIds(previous => {
@@ -310,11 +324,11 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     };
 
     const handleCreateNote = async () => {
-        if (!events.length || !onCreateNote) return;
+        if (!aiEvents.length || !onCreateNote) return;
         setIsCreatingNote(true);
         setNoteMessage('');
         try {
-            const result = await onCreateNote(currentDate, events);
+            const result = await onCreateNote(currentDate, aiEvents);
             setNoteMessage(result?.createdNewDay ? 'Created a new diary day from this schedule.' : 'Generated a new diary note from this schedule.');
         } catch (noteError) {
             console.error('Calendar note creation failed:', noteError);
@@ -469,10 +483,31 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                     />
                                     <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: calendarItem.backgroundColor || '#6366f1' }} />
                                     <span className="truncate">{calendarItem.summary || '(Unnamed calendar)'}</span>
-                                    {calendarItem.primary && <span className="ml-auto text-[10px] text-slate-400">Primary</span>}
-                                    {!calendarItem.primary && ['reader', 'freeBusyReader'].includes(calendarItem.accessRole) && (
-                                        <span className="ml-auto text-[10px] text-slate-400">{calendarItem._isIcsSubscription ? 'Outlook' : 'Other'}</span>
-                                    )}
+                                    <span className="ml-auto flex flex-shrink-0 items-center gap-2">
+                                        {calendarItem.primary && <span className="text-[10px] text-slate-400">Primary</span>}
+                                        {!calendarItem.primary && ['reader', 'freeBusyReader'].includes(calendarItem.accessRole) && (
+                                            <span className="text-[10px] text-slate-400">{calendarItem._isIcsSubscription ? 'Outlook' : 'Other'}</span>
+                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={(clickEvent) => {
+                                                clickEvent.preventDefault();
+                                                clickEvent.stopPropagation();
+                                                handleAiToggle(calendarItem.id);
+                                            }}
+                                            className={`flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium transition-colors ${aiExcludedCalendarIds.includes(calendarItem.id)
+                                                ? 'bg-slate-100 text-slate-400 line-through hover:bg-slate-200'
+                                                : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                                                }`}
+                                            aria-pressed={!aiExcludedCalendarIds.includes(calendarItem.id)}
+                                            title={aiExcludedCalendarIds.includes(calendarItem.id)
+                                                ? 'Events from this calendar are never sent to Gemini. Click to allow.'
+                                                : 'Events from this calendar can be sent to Gemini. Click to block.'}
+                                        >
+                                            <Sparkles size={10} />
+                                            AI
+                                        </button>
+                                    </span>
                                 </label>
                             ))}
                         </div>
@@ -481,9 +516,13 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
 
                 <button
                     onClick={handleCreateNote}
-                    disabled={isCreatingNote || events.length === 0}
+                    disabled={isCreatingNote || aiEvents.length === 0}
                     className="w-full flex items-center justify-center gap-2 bg-white border border-indigo-200 text-indigo-700 px-3 py-2 rounded-lg text-xs font-medium hover:bg-indigo-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={events.length === 0 ? 'No calendar events to use' : 'Use Gemini to create a diary note from this schedule'}
+                    title={events.length === 0
+                        ? 'No calendar events to use'
+                        : (aiEvents.length === 0
+                            ? 'All of today’s events are on calendars blocked from AI'
+                            : 'Use Gemini to create a diary note from this schedule (AI-blocked calendars are left out)')}
                 >
                     {isCreatingNote ? <RefreshCw size={14} className="animate-spin" /> : <Sparkles size={14} />}
                     <span>{isCreatingNote ? 'Generating Note…' : 'Generate Day Note'}</span>

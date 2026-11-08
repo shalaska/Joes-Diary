@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { filterEventsForAi } from "../utils/aiCalendarPrivacy";
 
 export const DEFAULT_SYSTEM_PROMPT = `
 You are a supportive, insightful "Thinking Partner" for a user writing in their diary.
@@ -45,6 +46,8 @@ const CALENDAR_USAGE_GUIDANCE = `The user often uses the calendar as a flexible 
 
 export const formatCalendarContext = (calendarContext) => {
     if (!calendarContext || !Array.isArray(calendarContext.events)) return '';
+    // Defence in depth: never include events from calendars blocked from AI.
+    const allowedEvents = filterEventsForAi(calendarContext.events);
 
     const contextDate = new Date(calendarContext.date);
     const dateLabel = Number.isNaN(contextDate.getTime())
@@ -56,7 +59,7 @@ export const formatCalendarContext = (calendarContext) => {
             day: 'numeric',
         });
 
-    const eventLines = calendarContext.events.map((event) => {
+    const eventLines = allowedEvents.map((event) => {
         const isAllDay = !event.start?.dateTime;
         const start = new Date(event.start?.dateTime || event.start?.date);
         const end = new Date(event.end?.dateTime || event.end?.date);
@@ -223,8 +226,10 @@ export const createCalendarDayShape = (events) => {
     return 'The calendar frames this as a moderately structured, mixed-paced day: organised enough to give it direction without every part being tightly scheduled.';
 };
 
-export const createCalendarDiaryNote = async (calendarDate, events, apiKey) => {
-    if (!apiKey || !events?.length) return null;
+export const createCalendarDiaryNote = async (calendarDate, calendarEvents, apiKey) => {
+    // Defence in depth: never send events from calendars blocked from AI.
+    const events = filterEventsForAi(calendarEvents);
+    if (!apiKey || !events.length) return null;
 
     const eventDetails = events.map(event => {
         const isAllDay = !event.start?.dateTime;
