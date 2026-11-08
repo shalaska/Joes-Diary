@@ -1,0 +1,66 @@
+name: Firebase Hosting
+
+# Pull requests get a 7-day preview URL; merges to main deploy to the live site.
+# Auth is keyless: GitHub's OIDC token is exchanged for a short-lived Google token
+# through Workload Identity Federation. Only this repository can use the
+# github-deploy service account, and that account can only manage Hosting.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: firebase-hosting-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT_ID: joesdiary-d8211
+  WORKLOAD_IDENTITY_PROVIDER: projects/837714540398/locations/global/workloadIdentityPools/github/providers/joes-diary
+  SERVICE_ACCOUNT: github-deploy@joesdiary-d8211.iam.gserviceaccount.com
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Lint reports existing errors; it is informational until they are fixed (Phase 0).
+      - name: Lint (informational)
+        run: npm run lint
+        continue-on-error: true
+
+      - run: npm run build
+
+      - name: Authenticate to Google Cloud (keyless)
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - name: Deploy preview channel
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          if ! npx --yes firebase-tools@14 hosting:channel:deploy "pr-${{ github.event.number }}" \
+            --expires 7d --project "$PROJECT_ID" --json > channel.json; then
+            cat channel.json
+            exit 1
+          fi
+          url=$(node -e "const r=require('./channel.json').result; console.log(Object.values(r)[0].url)")
+          echo "Preview: $url"
+          echo "### Preview deployed: $url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy live
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: npx --yes firebase-tools@14 deploy --only hosting --project "$PROJECT_ID" --non-interactive
