@@ -1,0 +1,88 @@
+name: Gemini model bump
+
+# Once a week, look for a newer stable Gemini Flash model. If there is one, smoke-test
+# every gateway feature on it with synthetic input and open a PR that moves the pin in
+# gateway/.env.joesdiary-d8211. Merging that PR deploys the gateway on the new model.
+# A model change is therefore always a reviewed, tested, revertable release.
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+  id-token: write
+
+concurrency:
+  group: gemini-model-bump
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: joesdiary-d8211
+  WORKLOAD_IDENTITY_PROVIDER: projects/837714540398/locations/global/workloadIdentityPools/github/providers/joes-diary
+  SERVICE_ACCOUNT: github-deploy@joesdiary-d8211.iam.gserviceaccount.com
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Authenticate to Google Cloud (keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # The key is read from Secret Manager, masked, and only exists inside this step.
+      - name: Look for a newer model and smoke-test it
+        id: check
+        env:
+          REPORT_FILE: ${{ runner.temp }}/model-bump-report.md
+        run: |
+          GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
+          echo "::add-mask::$GEMINI_API_KEY"
+          GEMINI_API_KEY="$GEMINI_API_KEY" node scripts/check-gemini-model.js
+
+      - name: Open the bump pull request
+        if: steps.check.outputs.bump == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ steps.check.outputs.candidate }}
+          SMOKE: ${{ steps.check.outputs.smoke }}
+          REPORT_FILE: ${{ runner.temp }}/model-bump-report.md
+        run: |
+          branch="bot/gemini-model-$CANDIDATE"
+          if git ls-remote --exit-code --heads origin "$branch" > /dev/null; then
+            echo "A bump to $CANDIDATE is already open on $branch."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add gateway/.env.joesdiary-d8211
+          git commit -m "Move the gateway to $CANDIDATE"
+          git push -u origin "$branch"
+          title="Move the gateway to $CANDIDATE"
+          if [ "$SMOKE" != "pass" ]; then title="$title (smoke test failed)"; fi
+          gh pr create --base main --head "$branch" --title "$title" --body-file "$REPORT_FILE"
+          # PRs opened with the workflow token do not trigger pull_request workflows,
+          # so start the CI run on the branch explicitly. Its checks show on the PR.
+          gh workflow run firebase-hosting.yml --ref "$branch"
+
+      - name: Fail the run if the new model failed the smoke test
+        if: steps.check.outputs.smoke == 'fail'
+        run: |
+          echo "::error::${{ steps.check.outputs.candidate }} failed the gateway smoke test. See the PR body."
+          exit 1

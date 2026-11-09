@@ -1,14 +1,17 @@
 name: Firebase Hosting
 
-# Pull requests get a 7-day preview URL; merges to main deploy to the live site.
-# Auth is keyless: GitHub's OIDC token is exchanged for a short-lived Google token
-# through Workload Identity Federation. Only this repository can use the
-# github-deploy service account, and that account can only manage Hosting and
-# Firestore security rules (it cannot read diary data).
+# Pull requests get a 7-day preview URL; merges to main deploy the site, the
+# Firestore rules and the LLM gateway. Auth is keyless: GitHub's OIDC token is
+# exchanged for a short-lived Google token through Workload Identity Federation.
+# Only this repository can use the github-deploy service account. It can manage
+# Hosting, Firestore rules and the gateway function, and read the Gemini key secret.
+# It has no access to Firestore data, so it cannot read the diary.
 on:
   pull_request:
   push:
     branches: [main]
+  # Used by the weekly model-bump job, whose PRs do not trigger pull_request runs.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -78,3 +81,10 @@ jobs:
       - name: Deploy Firestore rules
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: npx --yes firebase-tools@14 deploy --only firestore:rules --project "$PROJECT_ID" --non-interactive
+
+      # gateway/.env.joesdiary-d8211 pins the Gemini model, so a merged model bump goes live here.
+      - name: Deploy LLM gateway
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          npm ci --prefix gateway
+          npx --yes firebase-tools@14 deploy --only functions:gateway --project "$PROJECT_ID" --non-interactive
