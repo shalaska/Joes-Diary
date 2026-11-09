@@ -1,6 +1,8 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "joes-diary-ics-proxy",
+  // Account IDs are identifiers, not credentials. The API token is the secret.
+  "account_id": "7f0c2f0017a2e03e7dd7a731a79a7b53",
   "main": "src/index.js",
   "compatibility_date": "2026-08-10",
   "vars": {
