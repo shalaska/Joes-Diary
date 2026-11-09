@@ -1,7 +1,36 @@
 /* global gapi, google */
 
 const DISCOVERY_DOC = 'https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest';
-const SCOPES = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.events';
+// Least privilege: read and write events, and read the list of calendars. No access to
+// calendar settings, sharing (ACLs) or creating and deleting whole calendars.
+export const SCOPES = [
+    'https://www.googleapis.com/auth/calendar.events',
+    'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
+].join(' ');
+
+// The access token lives in sessionStorage: it survives a reload but is gone when the tab
+// closes, and it is never written to localStorage where it would sit on disk indefinitely.
+const TOKEN_KEY = 'google_calendar_token';
+const TOKEN_EXPIRY_KEY = 'google_calendar_token_expiry';
+
+const clearStoredToken = () => {
+    for (const storage of [sessionStorage, localStorage]) {
+        storage.removeItem(TOKEN_KEY);
+        storage.removeItem(TOKEN_EXPIRY_KEY);
+    }
+};
+
+/**
+ * Keep a freshly granted token for this browser tab only.
+ */
+export function storeAccessToken(response) {
+    if (!response?.access_token) return;
+    // Clear anything older versions of the app left in localStorage.
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXPIRY_KEY);
+    sessionStorage.setItem(TOKEN_KEY, JSON.stringify(response));
+    sessionStorage.setItem(TOKEN_EXPIRY_KEY, String(Date.now() + (response.expires_in * 1000)));
+}
 
 let tokenClient;
 let gapiInited = false;
@@ -66,42 +95,40 @@ export function handleSignoutClick() {
     if (token !== null) {
         google.accounts.oauth2.revoke(token.access_token);
         gapi.client.setToken('');
-        localStorage.removeItem('google_calendar_token');
-        localStorage.removeItem('google_calendar_token_expiry');
     }
+    clearStoredToken();
 }
 
 /**
- * Try to restore a previous session from localStorage.
+ * Restore this tab's token after a reload. Returns the token, or null.
  */
-export function tryRestoreSession() {
-    const tokenString = localStorage.getItem('google_calendar_token');
-    const expiryString = localStorage.getItem('google_calendar_token_expiry');
+export function readStoredToken() {
+    // Tokens from older versions sat in localStorage with full calendar scope: drop them.
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(TOKEN_EXPIRY_KEY);
 
-    if (tokenString) {
-        // Check expiry if available
-        if (expiryString) {
-            const expiryTime = parseInt(expiryString, 10);
-            if (Date.now() >= expiryTime) {
-                console.warn("Stored Google Calendar token has expired.");
-                localStorage.removeItem('google_calendar_token');
-                localStorage.removeItem('google_calendar_token_expiry');
-                return false;
-            }
-        }
+    const tokenString = sessionStorage.getItem(TOKEN_KEY);
+    if (!tokenString) return null;
 
-        try {
-            const token = JSON.parse(tokenString);
-            gapi.client.setToken(token);
-            return true;
-        } catch (e) {
-            console.error("Invalid stored token", e);
-            localStorage.removeItem('google_calendar_token');
-            localStorage.removeItem('google_calendar_token_expiry');
-            return false;
-        }
+    const expiryTime = parseInt(sessionStorage.getItem(TOKEN_EXPIRY_KEY) || '0', 10);
+    if (!expiryTime || Date.now() >= expiryTime) {
+        clearStoredToken();
+        return null;
     }
-    return false;
+
+    try {
+        return JSON.parse(tokenString);
+    } catch {
+        clearStoredToken();
+        return null;
+    }
+}
+
+export function tryRestoreSession() {
+    const token = readStoredToken();
+    if (!token) return false;
+    gapi.client.setToken(token);
+    return true;
 }
 
 /**
