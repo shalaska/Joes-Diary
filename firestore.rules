@@ -6,7 +6,9 @@ rules_version = '2';
 // 2. Sign-up is closed at the data layer: an account can only use the app if an admin has
 //    created allowedUsers/{uid} (from the Firebase console). A stranger who creates an account
 //    through the public Auth API gets nothing, not even an empty diary.
-// 3. Everything else is denied, including allowedUsers itself.
+// 3. A signed-in user may read their own allowedUsers entry and nothing else in it. The
+//    calendar proxy uses this to check the allowlist with the caller's own ID token.
+// 4. Everything else is denied.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -21,6 +23,10 @@ service cloud.firestore {
 
     match /users/{userId}/{document=**} {
       allow read, write: if isOwner(userId);
+    }
+
+    match /allowedUsers/{userId} {
+      allow get: if request.auth != null && request.auth.uid == userId;
     }
   }
 }

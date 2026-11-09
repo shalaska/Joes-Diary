@@ -1,0 +1,47 @@
+name: Calendar proxy (Cloudflare Worker)
+
+# Deploys cloudflare/ics-proxy when it changes on main. Needs one repository secret,
+# CLOUDFLARE_API_TOKEN (template "Edit Cloudflare Workers", limited to the Worker's account).
+# The account ID is in wrangler.jsonc.
+# The Outlook feed address stays a Worker secret (ICS_URL) and never passes through CI.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cloudflare/ics-proxy/**'
+      - '.github/workflows/cloudflare-worker.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloudflare-worker
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Proxy tests
+        run: npx vitest run cloudflare
+
+      - name: Deploy the Worker
+        working-directory: cloudflare/ics-proxy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Add the CLOUDFLARE_API_TOKEN repository secret first."
+            exit 1
+          fi
+          npx --yes wrangler@4 deploy
