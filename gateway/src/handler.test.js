@@ -43,9 +43,24 @@ describe('createHandler', () => {
         const { handle, log } = setup(callModel);
         await expect(handle({ feature: 'deleteEverything', input: {} })).rejects.toMatchObject({ code: 'invalid-argument' });
         await expect(handle({ feature: 'extractTodos', input: { text: 42 } })).rejects.toMatchObject({ code: 'invalid-argument' });
-        await expect(handle({ feature: 'chat', input: { text: 'x'.repeat(20001) } })).rejects.toMatchObject({ code: 'invalid-argument' });
+        await expect(handle({ feature: 'chat', input: { text: 'x'.repeat(100001) } })).rejects.toMatchObject({ code: 'invalid-argument' });
         expect(callModel).not.toHaveBeenCalled();
-        expect(log).not.toHaveBeenCalled();
+        expect(log.mock.calls.map(([entry]) => entry.outcome)).toEqual(['unknown_feature', 'invalid_input', 'invalid_input']);
+    });
+
+    it('logs only the sizes of a rejected input, never its text', async () => {
+        const { handle, log } = setup(vi.fn());
+        const secret = 'my private diary text '.repeat(5000);
+        await expect(handle({ feature: 'chat', input: { text: secret, history: [] } })).rejects.toMatchObject({ code: 'invalid-argument' });
+        const entry = log.mock.calls[0][0];
+        expect(entry).toEqual({ feature: 'chat', outcome: 'invalid_input', inputSizes: { text: secret.length, history: 0 } });
+        expect(JSON.stringify(entry)).not.toMatch(/private/);
+    });
+
+    it('accepts a long day note with calendar context', async () => {
+        const { handle } = setup(reply('{"type":"question","content":"Why?"}'));
+        const result = await handle({ feature: 'chat', input: { text: 'x'.repeat(60000) } });
+        expect(result.output.type).toBe('question');
     });
 
     it('logs invalid JSON and schema failures as distinct outcomes', async () => {

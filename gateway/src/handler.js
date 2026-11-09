@@ -13,6 +13,15 @@ export class GatewayError extends Error {
     }
 }
 
+// Sizes only, never content: enough to tell from the logs why an input was rejected.
+export const describeInput = (input) => {
+    if (!input || typeof input !== 'object') return { inputType: input === null ? 'null' : typeof input };
+    return Object.fromEntries(Object.entries(input).map(([key, value]) => [
+        key,
+        typeof value === 'string' || Array.isArray(value) ? value.length : typeof value,
+    ]));
+};
+
 const stripFences = (text) => text.replace(/^\s*```(?:json|markdown)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
 
 export const createHandler = ({ callModel, model, log, now = () => Date.now() }) => {
@@ -22,8 +31,14 @@ export const createHandler = ({ callModel, model, log, now = () => Date.now() })
 
     return async ({ feature, input }) => {
         const spec = FEATURES[feature];
-        if (!spec) throw new GatewayError('invalid-argument', 'Unknown feature');
-        if (!spec.validateInput(input)) throw new GatewayError('invalid-argument', 'Invalid input');
+        if (!spec) {
+            log({ feature: String(feature).slice(0, 50), outcome: 'unknown_feature' });
+            throw new GatewayError('invalid-argument', 'Unknown feature');
+        }
+        if (!spec.validateInput(input)) {
+            log({ feature, outcome: 'invalid_input', inputSizes: describeInput(input) });
+            throw new GatewayError('invalid-argument', 'Invalid input');
+        }
 
         const promptVersion = spec.promptVersionFor ? spec.promptVersionFor(input) : spec.promptVersion;
         const started = now();

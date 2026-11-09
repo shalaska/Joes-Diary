@@ -46,7 +46,9 @@ Text to analyze:
 "{{text}}"
 `;
 
-const MAX_TEXT = 20000;
+// A whole day's note plus the calendar context can run long. 100k characters is roughly
+// 25k tokens: well inside the model's window, and the daily call limit bounds the cost.
+const MAX_TEXT = 100000;
 
 const isString = (value, max = MAX_TEXT) => typeof value === 'string' && value.length <= max;
 
