@@ -6,14 +6,15 @@ import Auth from './components/Auth';
 import GeminiPanel from './components/GeminiPanel';
 import CalendarPanel from './components/CalendarPanel';
 import ScheduleTodoModal from './components/ScheduleTodoModal';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AuthProvider } from './contexts/AuthContext';
+import { useAuth } from './contexts/authContext';
 import { Menu, Book, Plus, Sparkles, ListTodo, CheckCircle2, X } from 'lucide-react';
 import SettingsModal from './components/SettingsModal';
 
 import { db as localDB } from './db';
 import { firestoreService } from './firestoreService';
-import { askGemini, editSelection, extractTodos, createCalendarDiaryNote, createCalendarDayShape, createCalendarObservation, formatCalendarContext, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
-import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, deleteEvent, isReady, tryRestoreSession } from './services/googleCalendarService';
+import { askGemini, extractTodos, createCalendarDiaryNote, createCalendarDayShape, createCalendarObservation, formatCalendarContext, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
+import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, deleteEvent, tryRestoreSession } from './services/googleCalendarService';
 import { findDiaryGroupForCalendarDate } from './utils/diaryGroups';
 
 const DEFAULT_ICS_PROXY_URL = 'https://joes-diary-ics-proxy.careful-system.workers.dev/calendar.ics';
@@ -214,10 +215,6 @@ function DiaryApp() {
   // -------------------------------------------------------------------------
   // Data Loading
   // -------------------------------------------------------------------------
-  if (!currentUser) {
-    return <Auth />;
-  }
-
   useEffect(() => {
     const initData = async () => {
       setIsLoading(true);
@@ -710,8 +707,6 @@ function DiaryApp() {
         onClose={() => setIsMobileMenuOpen(false)}
         onSettings={() => setIsSettingsOpen(true)}
         todos={todos}
-        onToggleTodo={handleToggleTodo}
-        onDeleteTodo={handleDeleteTodo}
       />
 
       <main className="flex-1 md:ml-64 flex overflow-hidden">
@@ -813,7 +808,7 @@ function DiaryApp() {
                   <div className="space-y-8">
                     {currentDayEntries
                       .filter(e => e.type !== 'analysis')
-                      .map((entry, index) => (
+                      .map((entry) => (
                         <DiaryEntry
                           key={entry.date}
                           date={entry.date}
@@ -831,7 +826,7 @@ function DiaryApp() {
 
                     {currentDayEntries
                       .filter(e => e.type === 'analysis')
-                      .map((entry, index) => (
+                      .map((entry) => (
                         <DiaryEntry
                           key={entry.date}
                           date={entry.date}
@@ -947,10 +942,18 @@ function DiaryApp() {
   );
 }
 
+// Signed-out users see the login screen. Keying on the uid gives each account a fresh
+// DiaryApp, so every hook runs in the same order on every render.
+function AuthGate() {
+  const { currentUser } = useAuth();
+  if (!currentUser) return <Auth />;
+  return <DiaryApp key={currentUser.uid} />;
+}
+
 export default function App() {
   return (
     <AuthProvider>
-      <DiaryApp />
+      <AuthGate />
     </AuthProvider>
   );
 }

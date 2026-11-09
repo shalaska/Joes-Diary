@@ -134,8 +134,6 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
     onClose,
     onSettings,
     todos,
-    onToggleTodo,
-    onDeleteTodo,
     onViewTodos
 }) => {
     // Sort dates based on metadata (if available) or default to date descending
