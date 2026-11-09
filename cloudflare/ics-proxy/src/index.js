@@ -1,10 +1,25 @@
+import { AuthError, bearerToken, createAllowlistCheck, createKeyStore, verifyFirebaseIdToken } from './auth.js';
+
 const corsHeaders = (origin) => ({
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'GET, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
 });
+
+// Module scope survives between requests on a warm isolate, so keys and allowlist answers are reused.
+const getKeys = createKeyStore();
+let allowlistCheck = null;
+
+const authorize = async (request, env) => {
+    const projectId = env.FIREBASE_PROJECT_ID;
+    if (!projectId) throw new AuthError('Proxy is not configured', 503);
+    allowlistCheck ??= createAllowlistCheck({ projectId });
+    const token = bearerToken(request);
+    const claims = await verifyFirebaseIdToken(token, { projectId, getKeys });
+    if (!(await allowlistCheck(claims.sub, token))) throw new AuthError('Account is not allowed', 403);
+};
 
 export default {
     async fetch(request, env) {
@@ -24,6 +39,17 @@ export default {
 
         if (request.method !== 'GET' || url.pathname !== '/calendar.ics') {
             return new Response('Not found', { status: 404, headers: corsHeaders(origin) });
+        }
+
+        try {
+            await authorize(request, env);
+        } catch (error) {
+            const status = error instanceof AuthError ? error.status : 401;
+            const message = { 403: 'Account is not allowed', 503: 'Sign-in check unavailable' }[status] || 'Sign-in required';
+            return new Response(message, {
+                status,
+                headers: corsHeaders(origin),
+            });
         }
 
         if (!env.ICS_URL) {

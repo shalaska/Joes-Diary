@@ -4,6 +4,7 @@
   "main": "src/index.js",
   "compatibility_date": "2026-08-10",
   "vars": {
+    "FIREBASE_PROJECT_ID": "joesdiary-d8211",
     "ALLOWED_ORIGINS": "https://joesdiary-d8211.web.app,https://joesdiary-d8211.firebaseapp.com,http://localhost:5173,http://127.0.0.1:5173"
   }
 }

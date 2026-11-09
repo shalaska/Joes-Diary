@@ -1,4 +1,5 @@
 import { db } from '../db.js';
+import { auth } from '../firebase';
 
 export const ICS_CALENDAR_ID = 'outlook-ics';
 export const ICS_CALENDAR_NAME = 'Work';
@@ -88,9 +89,13 @@ export const parseIcsEventsForDay = async (icsText, date) => {
         });
 };
 
-export const fetchIcsEventsForDay = async (proxyUrl, date) => {
+// The proxy only serves the feed to a signed-in, allowlisted account, so every request
+// carries the user's Firebase ID token.
+export const fetchIcsEventsForDay = async (proxyUrl, date, getIdToken = () => auth.currentUser?.getIdToken()) => {
     if (!proxyUrl) return [];
-    const response = await fetch(proxyUrl, { headers: { Accept: 'text/calendar' } });
+    const idToken = await getIdToken();
+    if (!idToken) throw new Error('Sign in to load the work calendar');
+    const response = await fetch(proxyUrl, { headers: { Accept: 'text/calendar', Authorization: `Bearer ${idToken}` } });
     if (!response.ok) throw new Error(`ICS proxy returned ${response.status}`);
     return parseIcsEventsForDay(await response.text(), date);
 };
