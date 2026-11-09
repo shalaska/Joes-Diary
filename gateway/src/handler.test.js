@@ -57,6 +57,18 @@ describe('createHandler', () => {
         expect(JSON.stringify(entry)).not.toMatch(/private/);
     });
 
+    it('treats null optional fields as absent, as the Firebase callable client sends them', async () => {
+        const callModel = vi.fn(reply('{"type":"question","content":"Why?"}'));
+        const { handle } = setup(callModel);
+        // httpsCallable encodes { systemPrompt: undefined } as { systemPrompt: null }.
+        const chat = await handle({ feature: 'chat', input: { text: 'New week.', history: null, systemPrompt: null } });
+        expect(chat.promptVersion).toBe('chat-v2');
+
+        const edit = setup(reply('Better text'));
+        const edited = await edit.handle({ feature: 'edit', input: { selection: 'text', instruction: 'improve', editPrompt: null } });
+        expect(edited.promptVersion).toBe('edit-v1');
+    });
+
     it('accepts a long day note with calendar context', async () => {
         const { handle } = setup(reply('{"type":"question","content":"Why?"}'));
         const result = await handle({ feature: 'chat', input: { text: 'x'.repeat(60000) } });

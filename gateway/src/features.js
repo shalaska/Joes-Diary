@@ -50,6 +50,8 @@ Text to analyze:
 // 25k tokens: well inside the model's window, and the daily call limit bounds the cost.
 const MAX_TEXT = 100000;
 
+// Optional fields may arrive as null, not missing: the Firebase callable client encodes an
+// undefined value as null. Check optional fields with `== null`, never `=== undefined`.
 const isString = (value, max = MAX_TEXT) => typeof value === 'string' && value.length <= max;
 
 // --- JSON schemas sent to Gemini (structured output) and re-checked here --------------------
@@ -137,13 +139,14 @@ export const FEATURES = {
         schema: CHAT_SCHEMA,
         validateInput: (input) => (
             isString(input?.text)
-            && (input.history === undefined || (Array.isArray(input.history) && input.history.length <= 50
+            && (input.history == null || (Array.isArray(input.history) && input.history.length <= 50
                 && input.history.every(msg => ['user', 'model'].includes(msg?.role) && isString(msg.content))))
-            && (input.systemPrompt === undefined || isString(input.systemPrompt, 10000))
+            && (input.systemPrompt == null || isString(input.systemPrompt, 10000))
         ),
         // A custom system prompt from Settings is allowed, but logged as such so evals know.
         promptVersionFor: (input) => (input.systemPrompt ? 'chat-custom' : 'chat-v2'),
-        buildPrompt: ({ text, history = [], systemPrompt }) => {
+        buildPrompt: ({ text, history, systemPrompt }) => {
+            history = history || [];
             const parts = [systemPrompt || DEFAULT_SYSTEM_PROMPT];
             if (history.length > 0) {
                 parts.push('Previous conversation:');
@@ -160,7 +163,7 @@ export const FEATURES = {
         validateInput: (input) => (
             isString(input?.selection) && input.selection.length > 0
             && isString(input?.instruction, 2000) && input.instruction.length > 0
-            && (input.editPrompt === undefined || isString(input.editPrompt, 10000))
+            && (input.editPrompt == null || isString(input.editPrompt, 10000))
         ),
         promptVersionFor: (input) => (input.editPrompt ? 'edit-custom' : 'edit-v1'),
         buildPrompt: ({ selection, instruction, editPrompt }) => (editPrompt || DEFAULT_EDIT_PROMPT)
