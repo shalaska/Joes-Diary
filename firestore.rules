@@ -1,0 +1,26 @@
+rules_version = '2';
+
+// Joe's Diary security rules.
+//
+// 1. Every document lives under users/{uid}/..., and only that signed-in user can touch it.
+// 2. Sign-up is closed at the data layer: an account can only use the app if an admin has
+//    created allowedUsers/{uid} (from the Firebase console). A stranger who creates an account
+//    through the public Auth API gets nothing, not even an empty diary.
+// 3. Everything else is denied, including allowedUsers itself.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAllowedUser() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/allowedUsers/$(request.auth.uid));
+    }
+
+    function isOwner(userId) {
+      return isAllowedUser() && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/{document=**} {
+      allow read, write: if isOwner(userId);
+    }
+  }
+}

@@ -3,13 +3,14 @@ import { useAuth } from '../contexts/authContext';
 import { Book, Sparkles } from 'lucide-react';
 
 export default function Auth() {
-    const [isLogin, setIsLogin] = useState(true);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
-    const { login, signup } = useAuth();
+    // Sign-up is closed: this is a single-user diary, and Firestore rules only admit
+    // accounts on the allowedUsers list.
+    const { login } = useAuth();
 
     async function handleSubmit(e) {
         e.preventDefault();
@@ -17,14 +18,10 @@ export default function Auth() {
         setLoading(true);
 
         try {
-            if (isLogin) {
-                await login(email, password);
-            } else {
-                await signup(email, password);
-            }
+            await login(email, password);
         } catch (err) {
             console.error(err);
-            setError('Failed to ' + (isLogin ? 'log in' : 'create account') + ': ' + err.message);
+            setError('Failed to log in: ' + err.message);
         }
 
         setLoading(false);
@@ -78,19 +75,9 @@ export default function Auth() {
                         type="submit"
                         className="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-3 rounded-xl font-medium transition-all shadow-md hover:shadow-lg active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
-                        {loading ? 'Processing...' : (isLogin ? 'Log In' : 'Sign Up')}
+                        {loading ? 'Processing...' : 'Log In'}
                     </button>
                 </form>
-
-                <div className="mt-6 text-center text-sm text-slate-500">
-                    {isLogin ? "Don't have an account? " : "Already have an account? "}
-                    <button
-                        onClick={() => setIsLogin(!isLogin)}
-                        className="text-indigo-600 font-medium hover:underline"
-                    >
-                        {isLogin ? 'Sign Up' : 'Log In'}
-                    </button>
-                </div>
             </div>
         </div>
     );
