@@ -27,8 +27,8 @@ export default defineConfig([
     },
   },
   {
-    // Server-side code: the LLM gateway (Cloud Functions) and the Cloudflare Worker.
-    files: ['gateway/**/*.js', 'cloudflare/**/*.js', 'tests/**/*.js', '*.config.js'],
+    // Server-side code: the LLM gateway (Cloud Functions), the Cloudflare Worker and CI scripts.
+    files: ['gateway/**/*.js', 'cloudflare/**/*.js', 'tests/**/*.js', 'scripts/**/*.js', '*.config.js'],
     languageOptions: { globals: { ...globals.node } },
   },
 ])
