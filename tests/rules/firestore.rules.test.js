@@ -65,10 +65,21 @@ describe('other users', () => {
         await assertFails(getDocs(collection(asStranger(), 'users', STRANGER, 'entries')));
     });
 
-    it('cannot add themselves to the allowlist or read it', async () => {
+    it('cannot add themselves to the allowlist or read anyone else\'s entry', async () => {
         await assertFails(setDoc(doc(asStranger(), 'allowedUsers', STRANGER), {}));
         await assertFails(getDoc(doc(asStranger(), 'allowedUsers', JOE)));
+        await assertFails(getDocs(collection(asStranger(), 'allowedUsers')));
         await assertFails(setDoc(doc(asJoe(), 'allowedUsers', STRANGER), {}));
+        await assertFails(setDoc(doc(asJoe(), 'allowedUsers', JOE), { note: 'changed' }));
+    });
+});
+
+describe('allowlist self-check (used by the calendar proxy)', () => {
+    it('lets a signed-in user read only their own allowlist entry', async () => {
+        await assertSucceeds(getDoc(doc(asJoe(), 'allowedUsers', JOE)));
+        // A stranger may look up their own (missing) entry; it simply does not exist.
+        await assertSucceeds(getDoc(doc(asStranger(), 'allowedUsers', STRANGER)));
+        await assertFails(getDoc(doc(asAnonymous(), 'allowedUsers', JOE)));
     });
 });
 
