@@ -14,7 +14,7 @@ import SettingsModal from './components/SettingsModal';
 import { db as localDB } from './db';
 import { firestoreService } from './firestoreService';
 import { askGemini, extractTodos, createCalendarDiaryNote, createCalendarDayShape, createCalendarObservation, formatCalendarContext, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
-import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, deleteEvent, tryRestoreSession } from './services/googleCalendarService';
+import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, deleteEvent, tryRestoreSession, storeAccessToken } from './services/googleCalendarService';
 import { findDiaryGroupForCalendarDate } from './utils/diaryGroups';
 
 const DEFAULT_ICS_PROXY_URL = 'https://joes-diary-ics-proxy.careful-system.workers.dev/calendar.ics';
@@ -101,11 +101,7 @@ function DiaryApp() {
             // Token received
             if (response && response.access_token) {
               setIsCalendarSignedIn(true);
-              // Save token to localStorage for persistence
-              localStorage.setItem('google_calendar_token', JSON.stringify(response));
-              // Save expiry (expires_in is in seconds)
-              const expiryTime = Date.now() + (response.expires_in * 1000);
-              localStorage.setItem('google_calendar_token_expiry', expiryTime.toString());
+              storeAccessToken(response);
             }
           });
 
