@@ -21,5 +21,15 @@
             "port": 8080
         },
         "singleProjectMode": true
-    }
+    },
+    "functions": [
+        {
+            "source": "gateway",
+            "codebase": "gateway",
+            "ignore": [
+                "node_modules",
+                "**/*.test.js"
+            ]
+        }
+    ]
 }

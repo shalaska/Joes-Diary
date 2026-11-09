@@ -5,7 +5,7 @@ import GeminiPanel from './GeminiPanel';
 import FloatingGeminiMenu from './FloatingGeminiMenu';
 import SimpleMarkdownRenderer from './SimpleMarkdownRenderer';
 
-const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, apiKey, systemPrompt, editPrompt, onAddTodos, calendarContext }) => {
+const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, systemPrompt, editPrompt, onAddTodos, calendarContext }) => {
     const [content, setContent] = useState(initialContent || '');
     const [isSaving, setIsSaving] = useState(false);
     const [geminiState, setGeminiState] = useState({ loading: false, suggestion: null });
@@ -143,7 +143,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
         const finalPrompt = customPrompt ? `${fullContext}\n\nQuestion: ${customPrompt}` : fullContext;
 
         try {
-            const suggestion = await askGemini(finalPrompt, [], apiKey, systemPrompt);
+            const suggestion = await askGemini(finalPrompt, [], systemPrompt);
             setGeminiState({ loading: false, suggestion, isWaitingForPrompt: false });
 
             // If custom prompt, seed history so it looks nice
@@ -178,7 +178,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
             const contextualReply = visibleCalendarContext
                 ? `${visibleCalendarContext}\n\nUser follow-up: ${replyText}`
                 : replyText;
-            const suggestion = await askGemini(contextualReply, chatHistory, apiKey, systemPrompt);
+            const suggestion = await askGemini(contextualReply, chatHistory, systemPrompt);
             setGeminiState({ loading: false, suggestion });
             setChatHistory(prev => [...prev, { role: 'model', content: suggestion.content }]);
         } catch (error) {
@@ -190,7 +190,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
     const handleMenuAction = async (instruction) => {
         setIsMenuLoading(true);
         try {
-            const result = await editSelection(selectedText, instruction, apiKey, editPrompt);
+            const result = await editSelection(selectedText, instruction, editPrompt);
 
             if (result.startsWith("[ANSWER]:")) {
                 const answerContent = result.replace("[ANSWER]: ", "");
@@ -253,7 +253,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
             // If we pass empty history, it only sees the prompt.
             // If we want subsequent turns to remember this, we need to manage history carefully.
 
-            const suggestion = await askGemini(prompt, [], apiKey, systemPrompt);
+            const suggestion = await askGemini(prompt, [], systemPrompt);
             setGeminiState({ loading: false, suggestion });
 
             // Update history with Gemini's response
@@ -275,7 +275,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
         setGeminiState(prev => ({ ...prev, loading: true }));
 
         try {
-            const todos = await extractTodos(content, apiKey);
+            const todos = await extractTodos(content);
             if (todos && todos.length > 0) {
                 setGeminiState({
                     loading: false,

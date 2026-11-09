@@ -8,7 +8,8 @@ import {
     query,
     writeBatch,
     addDoc,
-    updateDoc
+    updateDoc,
+    deleteField
 } from 'firebase/firestore';
 
 export const firestoreService = {
@@ -140,6 +141,11 @@ export const firestoreService = {
             return docSnap.data();
         }
         return null;
+    },
+
+    async removeLegacyApiKey(userId) {
+        const ref = doc(db, 'users', userId, 'settings', 'general');
+        await setDoc(ref, { apiKey: deleteField() }, { merge: true });
     },
 
     async saveUserSettings(userId, settings) {
