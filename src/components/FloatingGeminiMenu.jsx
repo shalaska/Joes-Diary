@@ -5,12 +5,14 @@ const FloatingGeminiMenu = ({ position, onAsk, onDiscuss, onClose, isLoading, se
     const [query, setQuery] = useState('');
     const [isExpanded, setIsExpanded] = useState(false);
     const menuRef = useRef(null);
+    const [lastSelection, setLastSelection] = useState({ selectedText, position });
 
-    // Reset state when selection changes or menu closes
-    useEffect(() => {
+    // Reset state when the selection or menu position changes.
+    if (lastSelection.selectedText !== selectedText || lastSelection.position !== position) {
+        setLastSelection({ selectedText, position });
         setIsExpanded(false);
         setQuery('');
-    }, [selectedText, position]);
+    }
 
     useEffect(() => {
         const handleClickOutside = (event) => {

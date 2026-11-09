@@ -11,7 +11,7 @@ let gisInited = false;
  * Callback after GAPI script is loaded.
  */
 export async function gapiLoaded() {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
         gapi.load('client', async () => {
             resolve();
         });
