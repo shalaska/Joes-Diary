@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Save, Key, MessageSquare, Calendar } from 'lucide-react';
+import { X, Save, ShieldCheck, MessageSquare, Calendar } from 'lucide-react';
 import NotionSettings from './NotionSettings';
 import DataExportSettings from './DataExportSettings';
 import SiriShortcutSettings from './SiriShortcutSettings';
@@ -7,7 +7,6 @@ import SiriShortcutSettings from './SiriShortcutSettings';
 const SettingsModal = ({
     onClose,
     onSave,
-    initialApiKey,
     initialSystemPrompt,
     initialEditPrompt,
     initialGoogleClientId,
@@ -17,7 +16,6 @@ const SettingsModal = ({
     entries,
     dayMetadata
 }) => {
-    const [apiKey, setApiKey] = useState(initialApiKey || '');
     const [systemPrompt, setSystemPrompt] = useState(initialSystemPrompt || '');
     const [editPrompt, setEditPrompt] = useState(initialEditPrompt || '');
     const [googleClientId, setGoogleClientId] = useState(initialGoogleClientId || '');
@@ -25,7 +23,7 @@ const SettingsModal = ({
     const [icsProxyUrl, setIcsProxyUrl] = useState(initialIcsProxyUrl || '');
 
     const handleSave = () => {
-        onSave(apiKey, systemPrompt, editPrompt, googleClientId, googleApiKey, icsProxyUrl);
+        onSave(systemPrompt, editPrompt, googleClientId, googleApiKey, icsProxyUrl);
         onClose();
     };
 
@@ -50,21 +48,12 @@ const SettingsModal = ({
                     <div className="space-y-6">
                         <h3 className="text-sm font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100 pb-2">Gemini Configuration</h3>
 
-                        {/* API Key Section */}
-                        <div className="space-y-3">
-                            <label className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                                <Key size={16} className="text-indigo-600" />
-                                Gemini API Key
-                            </label>
-                            <input
-                                type="password"
-                                value={apiKey}
-                                onChange={(e) => setApiKey(e.target.value)}
-                                placeholder="Enter your Gemini API Key"
-                                className="w-full px-4 py-2 rounded-lg border border-slate-200 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 outline-none transition-all text-slate-800 font-mono text-sm"
-                            />
-                            <p className="text-xs text-slate-500">
-                                Your key is stored locally in your browser.
+                        {/* Gateway notice (the key no longer lives in the browser) */}
+                        <div className="flex items-start gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs text-slate-600">
+                            <ShieldCheck size={16} className="text-indigo-600 shrink-0 mt-0.5" />
+                            <p>
+                                AI features run through your private gateway. The Gemini key is stored server-side,
+                                the model version is pinned, and only metadata (feature, model, latency, tokens) is logged.
                             </p>
                         </div>
 

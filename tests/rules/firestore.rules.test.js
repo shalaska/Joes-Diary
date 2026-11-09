@@ -72,6 +72,13 @@ describe('other users', () => {
     });
 });
 
+describe('gateway usage counters', () => {
+    it('are invisible to every client, including the owner', async () => {
+        await assertFails(getDoc(doc(asJoe(), 'gatewayUsage', `${JOE}_2026-11-09`)));
+        await assertFails(setDoc(doc(asJoe(), 'gatewayUsage', `${JOE}_2026-11-09`), { count: 0 }));
+    });
+});
+
 describe('signed-out visitors', () => {
     it('cannot read or write anything', async () => {
         await assertFails(getDoc(doc(asAnonymous(), 'users', JOE, 'entries', '2026-11-09')));

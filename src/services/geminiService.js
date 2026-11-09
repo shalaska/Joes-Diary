@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { callLlm } from "./llmGateway";
 import { filterEventsForAi } from "../utils/aiCalendarPrivacy";
 
 export const DEFAULT_SYSTEM_PROMPT = `
@@ -37,11 +37,6 @@ Do not add any explanations, quotes, or markdown unless requested.
 If the user asks a question instead of an edit, answer the question but prefix it with "[ANSWER]: ".
 `;
 
-const getModel = (apiKey) => {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    return genAI.getGenerativeModel({ model: "gemini-flash-latest" });
-};
-
 const CALENDAR_USAGE_GUIDANCE = `The user often uses the calendar as a flexible todo list to shape the day. Multiple items may intentionally share a time window because they are tasks to work through during that block. Do not treat overlap alone as double-booking, a conflict, or a problem unless the event details clearly indicate simultaneous fixed commitments.`;
 
 export const formatCalendarContext = (calendarContext) => {
@@ -79,65 +74,39 @@ export const formatCalendarContext = (calendarContext) => {
     ].join('\n');
 };
 
-export const askGemini = async (text, history = [], apiKey, systemPrompt) => {
-    if (!apiKey) {
-        console.warn("Gemini API Key is missing.");
-        return {
-            type: 'suggestion',
-            content: "I can't connect to my brain right now because the API key is missing. Please add your API Key in Settings.",
-        };
-    }
+// The gateway owns the default prompts. A system prompt is only sent when it was customised
+// in Settings, so the gateway can log it as a custom prompt version.
+const customOrUndefined = (prompt, defaultPrompt) => {
+    const trimmed = (prompt || '').trim();
+    return trimmed && trimmed !== defaultPrompt.trim() ? prompt : undefined;
+};
 
+export const askGemini = async (text, history = [], systemPrompt) => {
     try {
-        const model = getModel(apiKey);
-        const activeSystemPrompt = systemPrompt || DEFAULT_SYSTEM_PROMPT;
-
-        let promptParts = [activeSystemPrompt];
-
-        // Add history to context
-        if (history.length > 0) {
-            promptParts.push("Previous conversation:");
-            history.forEach(msg => {
-                promptParts.push(`${msg.role === 'user' ? 'User' : 'You'}: ${msg.content}`);
-            });
-        }
-
-        promptParts.push(`User's current input:\n"${text}"`);
-
-        const result = await model.generateContent(promptParts);
-
-        const response = await result.response;
-        const textResponse = response.text();
-
-        // Clean up potential markdown formatting if the model adds it despite instructions
-        const cleanJson = textResponse.replace(/```json\n?|\n?```/g, '').trim();
-
-        return JSON.parse(cleanJson);
+        return await callLlm('chat', {
+            text,
+            history: history.map(msg => ({ role: msg.role === 'user' ? 'user' : 'model', content: String(msg.content ?? '') })),
+            systemPrompt: customOrUndefined(systemPrompt, DEFAULT_SYSTEM_PROMPT),
+        });
     } catch (error) {
-        console.error("Error calling Gemini API:", error);
+        console.error("Error calling the AI gateway:", error);
         return {
             type: 'question',
-            content: "I'm having trouble thinking right now. Please check your API Key in Settings.",
+            content: "I'm having trouble thinking right now. Please try again in a moment.",
         };
     }
 };
 
-export const editSelection = async (selection, instruction, apiKey, editPrompt) => {
-    if (!apiKey) {
-        return { content: selection }; // Fail safe
-    }
-
-    const activeEditPrompt = (editPrompt || DEFAULT_EDIT_PROMPT)
-        .replace('{{selection}}', selection)
-        .replace('{{instruction}}', instruction);
-
+export const editSelection = async (selection, instruction, editPrompt) => {
     try {
-        const model = getModel(apiKey);
-        const result = await model.generateContent(activeEditPrompt);
-        const response = await result.response;
-        return response.text().trim();
+        const result = await callLlm('edit', {
+            selection,
+            instruction,
+            editPrompt: customOrUndefined(editPrompt, DEFAULT_EDIT_PROMPT),
+        });
+        return result.trim();
     } catch (error) {
-        console.error("Error calling Gemini API for edit:", error);
+        console.error("Error calling the AI gateway for edit:", error);
         return selection;
     }
 };
@@ -226,10 +195,10 @@ export const createCalendarDayShape = (events) => {
     return 'The calendar frames this as a moderately structured, mixed-paced day: organised enough to give it direction without every part being tightly scheduled.';
 };
 
-export const createCalendarDiaryNote = async (calendarDate, calendarEvents, apiKey) => {
+export const createCalendarDiaryNote = async (calendarDate, calendarEvents) => {
     // Defence in depth: never send events from calendars blocked from AI.
     const events = filterEventsForAi(calendarEvents);
-    if (!apiKey || !events.length) return null;
+    if (!events.length) return null;
 
     const eventDetails = events.map(event => {
         const isAllDay = !event.start?.dateTime;
@@ -246,29 +215,10 @@ export const createCalendarDiaryNote = async (calendarDate, calendarEvents, apiK
         };
     });
 
-    const prompt = `
-Turn the following calendar schedule for ${new Date(calendarDate).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} into a concise diary-style note.
-
-Important rules:
-- Calendar entries are plans, not proof that something happened. Use cautious wording such as "was scheduled", "the day was planned around", or "the calendar included".
-- ${CALENDAR_USAGE_GUIDANCE}
-- Try to piece together a coherent picture of the day by grouping related activities and noticing the likely flow from morning to evening.
-- Never invent outcomes, emotions, people, places, or details that are not supported by the calendar.
-- Do not overinterpret unclear or abbreviated event titles.
-- Account for every event. Put items that do not fit the narrative under a short "Other scheduled items" section.
-- Near the end, add a section titled "## Shape of the Day". In two or three sentences, characterise what kind of day the calendar suggests at a higher level—for example focused, fragmented, task-heavy, appointment-led, transitional, logistics-heavy, balanced, or lightly structured. Base this on both the themes of the event titles and the rhythm of the schedule. Do not infer the user's mood, personality, success, or actual experience.
-- End with a section titled "## Insight or Observation" containing one concrete, useful, schedule-grounded takeaway. Decide what is most useful: for example a demanding transition, dominant focus block, unusually dense period, long gap, or balance between types of activity. An overlap alone is not a useful warning given how the user uses the calendar; mention it only when the event details provide clear evidence of a genuine conflict. Avoid generic encouragement and do not invent how the user felt.
-- Return only clean Markdown for the diary note. Begin with "## Day from My Calendar". Keep the whole note concise.
-
-Calendar events:
-${JSON.stringify(eventDetails, null, 2)}
-`;
+    const dateLabel = new Date(calendarDate).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
     try {
-        const model = getModel(apiKey);
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        let note = response.text().replace(/^```(?:markdown)?\s*|\s*```$/g, '').trim();
+        let note = (await callLlm('calendarNote', { dateLabel, events: eventDetails })).trim();
         if (note && !/^##\s+Shape of the Day/im.test(note)) {
             const insightIndex = note.search(/^##\s+(?:Insight|Observation)/im);
             const shapeSection = `## Shape of the Day\n\n${createCalendarDayShape(events)}`;
@@ -286,36 +236,9 @@ ${JSON.stringify(eventDetails, null, 2)}
     }
 };
 
-const TODO_EXTRACTION_PROMPT = `
-You are a task extraction assistant.
-Analyze the following text and identify any actionable tasks or "todos".
-Return a JSON array of objects, where each object has:
-- "text": A concise description of the task.
-- "priority": "high", "medium", or "low" based on urgency or importance implied.
-
-If no tasks are found, return an empty array [].
-Do NOT use Markdown. Return ONLY raw JSON.
-
-Text to analyze:
-"{{text}}"
-`;
-
-export const extractTodos = async (text, apiKey) => {
-    if (!apiKey) {
-        console.warn("Gemini API Key is missing for todo extraction.");
-        return [];
-    }
-
-    const prompt = TODO_EXTRACTION_PROMPT.replace('{{text}}', text);
-
+export const extractTodos = async (text) => {
     try {
-        const model = getModel(apiKey);
-        const result = await model.generateContent(prompt);
-        const response = await result.response;
-        const textResponse = response.text();
-
-        const cleanJson = textResponse.replace(/```json\n?|\n?```/g, '').trim();
-        return JSON.parse(cleanJson);
+        return await callLlm('extractTodos', { text });
     } catch (error) {
         console.error("Error extracting todos:", error);
         return [];

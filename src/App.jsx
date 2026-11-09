@@ -50,7 +50,6 @@ function DiaryApp() {
 
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY || '');
   const [systemPrompt, setSystemPrompt] = useState(localStorage.getItem('gemini_system_prompt') || DEFAULT_SYSTEM_PROMPT);
   const [editPrompt, setEditPrompt] = useState(localStorage.getItem('gemini_edit_prompt') || DEFAULT_EDIT_PROMPT);
 
@@ -258,9 +257,10 @@ function DiaryApp() {
         // 3. Load User Settings
         const userSettings = await firestoreService.getUserSettings(currentUser.uid);
         if (userSettings) {
-          if (userSettings.apiKey) {
-            setApiKey(userSettings.apiKey);
-            localStorage.setItem('gemini_api_key', userSettings.apiKey);
+          localStorage.removeItem('gemini_api_key');
+          if ('apiKey' in userSettings) {
+            // The Gemini key now lives server-side in the gateway: remove the old copy.
+            await firestoreService.removeLegacyApiKey(currentUser.uid);
           }
           if (userSettings.systemPrompt) {
             setSystemPrompt(userSettings.systemPrompt);
@@ -346,11 +346,9 @@ function DiaryApp() {
     return count;
   };
 
-  const handleSaveSettings = async (newKey, newPrompt, newEditPrompt, newClientId, newGoogleKey, newIcsProxyUrl) => {
-    setApiKey(newKey);
+  const handleSaveSettings = async (newPrompt, newEditPrompt, newClientId, newGoogleKey, newIcsProxyUrl) => {
     setSystemPrompt(newPrompt);
     setEditPrompt(newEditPrompt);
-    localStorage.setItem('gemini_api_key', newKey);
     localStorage.setItem('gemini_system_prompt', newPrompt);
     localStorage.setItem('gemini_edit_prompt', newEditPrompt);
 
@@ -370,7 +368,6 @@ function DiaryApp() {
     }
 
     await firestoreService.saveUserSettings(currentUser.uid, {
-      apiKey: newKey,
       systemPrompt: newPrompt,
       editPrompt: newEditPrompt
     });
@@ -427,7 +424,7 @@ function DiaryApp() {
       return `- **${time}** ${event.summary || '(No title)'}${location}`;
     });
 
-    const generatedContent = await createCalendarDiaryNote(calendarDate, calendarEvents, apiKey);
+    const generatedContent = await createCalendarDiaryNote(calendarDate, calendarEvents);
     const content = generatedContent || `## Day from My Calendar\n\nI couldn't confidently piece these events into a narrative, so here is what else was scheduled:\n\n${scheduleLines.join('\n')}\n\n## Shape of the Day\n\n${createCalendarDayShape(calendarEvents)}\n\n## Insight or Observation\n\n${createCalendarObservation(calendarEvents)}`;
     const now = new Date();
     targetDate.setHours(now.getHours(), now.getMinutes(), now.getSeconds(), now.getMilliseconds());
@@ -535,7 +532,7 @@ function DiaryApp() {
     }
 
     try {
-      const suggestion = await askGemini(prompt, [], apiKey, systemPrompt);
+      const suggestion = await askGemini(prompt, [], systemPrompt);
       setGlobalGemini({ loading: false, suggestion, isWaitingForPrompt: false });
 
       if (customPrompt) {
@@ -572,7 +569,7 @@ function DiaryApp() {
       .join('\n\n---\n\n');
 
     try {
-      const todos = await extractTodos(aggregatedContent, apiKey);
+      const todos = await extractTodos(aggregatedContent);
       if (todos && todos.length > 0) {
         setGlobalGemini({
           loading: false,
@@ -616,7 +613,7 @@ function DiaryApp() {
       const contextualReply = visibleCalendarContext
         ? `${visibleCalendarContext}\n\nUser follow-up: ${replyText}`
         : replyText;
-      const suggestion = await askGemini(contextualReply, globalChatHistory, apiKey, systemPrompt);
+      const suggestion = await askGemini(contextualReply, globalChatHistory, systemPrompt);
       setGlobalGemini({ loading: false, suggestion });
       setGlobalChatHistory(prev => [...prev, { role: 'model', content: suggestion.content }]);
     } catch (error) {
@@ -812,7 +809,6 @@ function DiaryApp() {
                           onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
                           onDelete={deleteEntry}
                           showDateHeader={false}
-                          apiKey={apiKey}
                           systemPrompt={systemPrompt}
                           editPrompt={editPrompt}
                           onAddTodos={handleAddTodos}
@@ -831,7 +827,6 @@ function DiaryApp() {
                           onDelete={deleteEntry}
                           showDateHeader={false}
                           isAnalysis={true}
-                          apiKey={apiKey}
                           systemPrompt={systemPrompt}
                           editPrompt={editPrompt}
                           onAddTodos={handleAddTodos}
@@ -910,7 +905,6 @@ function DiaryApp() {
         <SettingsModal
           onClose={() => setIsSettingsOpen(false)}
           onSave={handleSaveSettings}
-          initialApiKey={apiKey}
           initialSystemPrompt={systemPrompt}
           initialEditPrompt={editPrompt}
           initialGoogleClientId={googleClientId}
