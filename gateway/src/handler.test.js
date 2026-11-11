@@ -149,3 +149,22 @@ describe('createGeminiClient', () => {
         await expect(call(400)).rejects.toMatchObject({ retryable: false });
     });
 });
+
+describe('per-feature models', () => {
+    const okTodos = async ({ model }) => ({ text: JSON.stringify([{ text: "Buy milk", priority: "low" }]), usage: { inputTokens: 1, outputTokens: 1 }, modelVersion: model, finishReason: 'STOP' });
+
+    it('uses the override for its feature and the default for the rest', async () => {
+        const calls = [];
+        const callModel = async (args) => { calls.push(args.model); return args.schema ? okTodos(args) : { text: 'Fine.', usage: { inputTokens: 1, outputTokens: 1 }, modelVersion: args.model }; };
+        const handle = createHandler({ callModel, model: 'gemini-3.8-flash', featureModels: { extractTodos: 'gemini-3.1-flash-lite' }, log: () => {} });
+        const todos = await handle({ feature: 'extractTodos', input: { text: 'Buy milk' } });
+        await handle({ feature: 'edit', input: { selection: 'hi', instruction: 'formal' } });
+        expect(todos.model).toBe('gemini-3.1-flash-lite');
+        expect(calls).toEqual(['gemini-3.1-flash-lite', 'gemini-3.8-flash']);
+    });
+
+    it('treats a blank override as the default and rejects a latest alias', () => {
+        expect(() => createHandler({ callModel: okTodos, model: 'gemini-3.8-flash', featureModels: { extractTodos: '' }, log: () => {} })).not.toThrow();
+        expect(() => createHandler({ callModel: okTodos, model: 'gemini-3.8-flash', featureModels: { extractTodos: 'gemini-flash-lite-latest' }, log: () => {} })).toThrow(/latest/);
+    });
+});

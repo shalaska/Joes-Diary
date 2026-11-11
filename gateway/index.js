@@ -19,6 +19,11 @@ const GEMINI_MODEL = defineString('GEMINI_MODEL', {
     description: 'Exact Gemini model version, e.g. gemini-2.5-flash. Never a "latest" alias.',
 });
 
+const GEMINI_MODEL_TODOS = defineString('GEMINI_MODEL_TODOS', {
+    default: '',
+    description: 'Optional exact model for todo extraction. Blank = GEMINI_MODEL.',
+});
+
 const DAILY_CALL_LIMIT = 300;
 
 const isAllowedUser = async (uid) => (await getFirestore().doc(`allowedUsers/${uid}`).get()).exists;
@@ -51,6 +56,7 @@ export const llm = onCall({
 
     const handle = createHandler({
         model: GEMINI_MODEL.value(),
+        featureModels: { extractTodos: GEMINI_MODEL_TODOS.value() },
         callModel: createGeminiClient({ apiKey: GEMINI_API_KEY.value() }),
         // Structured log line: metadata only, never prompts, inputs or outputs.
         log: (entry) => logger.info('llm_call', entry),

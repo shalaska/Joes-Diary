@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isNewer, newestStableFlash, parseFlashVersion, readPinnedModel, writePinnedModel } from './geminiModel.js';
+import { isNewer, newestStableFlash, parseFlashVersion, readFeatureModels, readPinnedModel, writePinnedModel } from './geminiModel.js';
 
 describe('newestStableFlash', () => {
     it('picks the highest stable Flash model and ignores previews, lite, tts, image and aliases', () => {
@@ -45,5 +45,12 @@ describe('pinned model in the env file', () => {
 
     it('refuses to write when the line is missing', () => {
         expect(() => writePinnedModel('OTHER=1\n', 'gemini-3.9-flash')).toThrow();
+    });
+});
+
+describe('readFeatureModels', () => {
+    it('maps per-feature lines to features and ignores missing ones', () => {
+        expect(readFeatureModels('GEMINI_MODEL=a\nGEMINI_MODEL_TODOS=gemini-3.1-flash-lite\n')).toEqual({ extractTodos: 'gemini-3.1-flash-lite' });
+        expect(readFeatureModels('GEMINI_MODEL=a\n')).toEqual({});
     });
 });

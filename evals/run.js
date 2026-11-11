@@ -17,7 +17,7 @@ import { createHandler } from '../gateway/src/handler.js';
 import { createGeminiClient } from '../gateway/src/gemini.js';
 import { CALIBRATION } from './calibration.js';
 import { createJudge, judgeCandidates } from './judge.js';
-import { readPinnedModel } from '../scripts/geminiModel.js';
+import { readFeatureModels, readPinnedModel } from '../scripts/geminiModel.js';
 import { SUITES } from './suites.js';
 import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
 import { compareToBaseline, gateMarkdown, toBaseline } from './gate.js';
@@ -69,7 +69,12 @@ const calibrate = async (judge, judgeModel, outDir) => {
 const main = async () => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
-    const model = process.env.EVAL_MODEL || readPinnedModel(readFileSync('gateway/.env.joesdiary-d8211', 'utf8'));
+    const envText = readFileSync('gateway/.env.joesdiary-d8211', 'utf8');
+    const model = process.env.EVAL_MODEL || readPinnedModel(envText);
+    // Without EVAL_MODEL the evals test the live setup, per-feature overrides included.
+    // With it (e.g. a bake-off or the model bump) every feature uses that one model.
+    const featureModels = process.env.EVAL_MODEL ? {} : readFeatureModels(envText);
+    if (Object.keys(featureModels).length) console.log(`Per-feature models: ${JSON.stringify(featureModels)}`);
     const repeats = Number(process.env.EVAL_REPEATS || 1);
     const only = (process.env.EVAL_FEATURES || '').split(',').map(s => s.trim()).filter(Boolean);
     const outDir = process.env.EVAL_OUT || 'eval-results';
@@ -91,7 +96,7 @@ const main = async () => {
             for (let run = 1; run <= repeats; run++) {
                 jobs.push(async () => {
                     let logEntry = null;
-                    const handle = createHandler({ callModel, model, log: (entry) => { logEntry = entry; } });
+                    const handle = createHandler({ callModel, model, featureModels, log: (entry) => { logEntry = entry; } });
                     let output = null;
                     try {
                         output = (await handle({ feature: suite.feature, input: suite.input(testCase) })).output;
@@ -121,7 +126,10 @@ const main = async () => {
     }
 
     const results = await runPool(jobs, CONCURRENCY);
-    const summary = summarise(results, { model, repeats, judgeModel: judge ? judgeModel : null });
+    const modelLabel = Object.keys(featureModels).length
+        ? `${model} (${Object.entries(featureModels).map(([f, m]) => `${f}: ${m}`).join(', ')})`
+        : model;
+    const summary = summarise(results, { model: modelLabel, repeats, judgeModel: judge ? judgeModel : null });
     mkdirSync(outDir, { recursive: true });
     writeFileSync(`${outDir}/results.json`, JSON.stringify({ summary, results }, null, 2));
     let markdown = toMarkdown(summary, results);
