@@ -23,10 +23,10 @@ describe('createHandler', () => {
         const { handle, log } = setup(reply('[{"text":"Book dentist","priority":"high"}]'));
         const result = await handle({ feature: 'extractTodos', input: { text: 'I need to book the dentist, my tooth hurts' } });
 
-        expect(result).toEqual({ output: [{ text: 'Book dentist', priority: 'high' }], promptVersion: 'todos-v2', model: MODEL });
+        expect(result).toEqual({ output: [{ text: 'Book dentist', priority: 'high' }], promptVersion: 'todos-v3', model: MODEL });
         expect(log).toHaveBeenCalledOnce();
         const entry = log.mock.calls[0][0];
-        expect(entry).toMatchObject({ feature: 'extractTodos', promptVersion: 'todos-v2', model: MODEL, outcome: 'ok', inputTokens: 10, outputTokens: 5 });
+        expect(entry).toMatchObject({ feature: 'extractTodos', promptVersion: 'todos-v3', model: MODEL, outcome: 'ok', inputTokens: 10, outputTokens: 5 });
         expect(entry.latencyMs).toBeGreaterThan(0);
         // No diary text in the log line.
         expect(JSON.stringify(entry)).not.toMatch(/dentist|tooth/i);
@@ -62,7 +62,7 @@ describe('createHandler', () => {
         const { handle } = setup(callModel);
         // httpsCallable encodes { systemPrompt: undefined } as { systemPrompt: null }.
         const chat = await handle({ feature: 'chat', input: { text: 'New week.', history: null, systemPrompt: null } });
-        expect(chat.promptVersion).toBe('chat-v2');
+        expect(chat.promptVersion).toBe('chat-v3');
 
         const edit = setup(reply('Better text'));
         const edited = await edit.handle({ feature: 'edit', input: { selection: 'text', instruction: 'improve', editPrompt: null } });
