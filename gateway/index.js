@@ -9,7 +9,8 @@ import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { HttpsError, onCall } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
-import { createGeminiClient } from './src/gemini.js';
+import { createAskHandler } from './src/agent.js';
+import { createGeminiClient, createGeminiToolClient } from './src/gemini.js';
 import { createHandler, GatewayError } from './src/handler.js';
 
 initializeApp();
@@ -45,7 +46,7 @@ export const llm = onCall({
     region: 'europe-west1',
     secrets: [GEMINI_API_KEY],
     maxInstances: 2,
-    timeoutSeconds: 60,
+    timeoutSeconds: 120, // the agent loop may take up to about 90 s; single-shot features finish far sooner
     memory: '256MiB',
     cors: ['https://joesdiary-d8211.web.app', 'https://joesdiary-d8211.firebaseapp.com', /^https:\/\/joesdiary-d8211--pr-\d+-[a-z0-9]+\.web\.app$/, /^http:\/\/localhost:\d+$/],
 }, async (request) => {
@@ -53,6 +54,28 @@ export const llm = onCall({
     if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
     if (!(await isAllowedUser(uid))) throw new HttpsError('permission-denied', 'This account is not allowed to use the diary.');
     if (!(await takeDailyQuota(uid))) throw new HttpsError('resource-exhausted', `Daily limit of ${DAILY_CALL_LIMIT} AI calls reached.`);
+
+    // "Ask my diary": the read-only agent. It reads only this user's own documents, through the
+    // Admin SDK scoped to users/{uid}, and has no tool that writes.
+    if (request.data?.feature === 'ask') {
+        const db = getFirestore();
+        const ask = createAskHandler({
+            model: GEMINI_MODEL.value(),
+            callTools: createGeminiToolClient({ apiKey: GEMINI_API_KEY.value(), timeoutMs: 25000 }),
+            store: {
+                entries: async () => (await db.collection(`users/${uid}/entries`).get()).docs.map(d => d.data()),
+                todos: async () => (await db.collection(`users/${uid}/todos`).get()).docs.map(d => d.data()),
+            },
+            log: (entry) => logger.info('llm_call', entry),
+        });
+        try {
+            return await ask(request.data?.input);
+        } catch (error) {
+            if (error instanceof GatewayError) throw new HttpsError(error.code, error.message);
+            logger.error('llm_gateway_unexpected', { name: error?.name, feature: 'ask' });
+            throw new HttpsError('internal', 'Gateway error');
+        }
+    }
 
     const handle = createHandler({
         model: GEMINI_MODEL.value(),

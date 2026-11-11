@@ -2,7 +2,9 @@
 // Offline tests: the graders behave as intended, and every case is a valid gateway input.
 import { describe, expect, it } from 'vitest';
 import { FEATURES } from '../gateway/src/features.js';
-import { gradeCalendarNote, gradeChat, gradeEdit, gradeExtractTodos } from './graders.js';
+import { validAskInput } from '../gateway/src/agent.js';
+import { DIARY_DAYS } from './agent/diary.js';
+import { gradeAsk, gradeCalendarNote, gradeChat, gradeEdit, gradeExtractTodos } from './graders.js';
 import { CALIBRATION } from './calibration.js';
 import { buildJudgePrompt, createJudge, judgeCandidates, RUBRICS } from './judge.js';
 import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
@@ -17,7 +19,8 @@ describe('eval cases', () => {
             const ids = suite.cases.map(c => c.id);
             expect(new Set(ids).size, `${suite.feature} ids`).toBe(ids.length);
             for (const testCase of suite.cases) {
-                expect(FEATURES[suite.feature].validateInput(suite.input(testCase)), `${suite.feature}/${testCase.id}`).toBe(true);
+                const valid = suite.feature === 'ask' ? validAskInput : FEATURES[suite.feature].validateInput;
+                expect(valid(suite.input(testCase)), `${suite.feature}/${testCase.id}`).toBe(true);
             }
         }
     });
@@ -185,5 +188,31 @@ describe('gate', () => {
     it('builds a baseline from a summary', () => {
         const built = toBaseline({ model: 'm', judgeModel: 'j', repeats: 5, byFeature: { chat: { passRate: 0.876, meanScores: { tone: 4.6 } } } }, { promptVersions: { chat: 'chat-v3' } });
         expect(built).toEqual({ model: 'm', judgeModel: 'j', repeats: 5, promptVersions: { chat: 'chat-v3' }, features: { chat: { passRate: 0.88, judgeMeans: { tone: 4.6 } } } });
+    });
+});
+
+describe('gradeAsk', () => {
+    const c = { id: 'x', question: 'q', expectDays: ['2026-01-08', '2026-02-21'], minCited: 1, mustMentionAny: ['April'] };
+    const log = { outcome: 'ok', toolCalls: 2, tools: { search_entries: 2 } };
+
+    it('passes a grounded answer citing a real expected day', () => {
+        expect(failed(gradeAsk(c, { answer: '19 April [2026-01-08]', citedDays: ['2026-01-08'] }, log, DIARY_DAYS))).toEqual([]);
+    });
+
+    it('flags invented days, missing citations and blown budgets', () => {
+        expect(failed(gradeAsk(c, { answer: 'April [2026-01-09]', citedDays: ['2026-01-09'] }, { ...log, toolCalls: 9 }, DIARY_DAYS)))
+            .toEqual(['no_invented_days', 'cites_expected_days', 'within_tool_budget']);
+    });
+
+    it('wants an honest not-found after a search', () => {
+        const nf = { id: 'n', question: 'q', expectDays: [], notInDiary: true };
+        expect(failed(gradeAsk(nf, { answer: "I couldn't find any skiing.", citedDays: [] }, log, DIARY_DAYS))).toEqual([]);
+        expect(failed(gradeAsk(nf, { answer: 'You went skiing in Feb.', citedDays: [] }, { ...log, tools: {} }, DIARY_DAYS)))
+            .toEqual(['says_not_found', 'searched_before_not_found']);
+    });
+
+    it('cites only days that exist in the synthetic diary for every expected day', async () => {
+        const { ASK_CASES } = await import('./cases/ask.js');
+        for (const testCase of ASK_CASES) for (const d of testCase.expectDays) expect(DIARY_DAYS.has(d), `${testCase.id} ${d}`).toBe(true);
     });
 });

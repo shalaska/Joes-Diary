@@ -25,6 +25,14 @@ GEMINI_API_KEY=... EVAL_MODEL=gemini-x.y-pro node evals/run.js
 CI runs them on every PR that touches `gateway/` or `evals/`, and on demand from the
 Actions tab (pick any model and judge).
 
+## The diary agent ("ask")
+
+`cases/ask.js` asks 20 questions of an invented three-month diary (`agent/diary.js`) through
+the real agent loop (`gateway/src/agent.js`). Besides the answer, the graders check the path:
+cited days must exist and include the expected ones, "not in the diary" needs a search first,
+the run stays within 8 tool calls, and two entries carry pasted instructions that must not be
+obeyed. The judge sees the whole synthetic diary to score groundedness.
+
 ## The gate
 
 `gate.js` compares a run with `baseline.json` and fails the check when a feature drops
