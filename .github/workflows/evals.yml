@@ -1,0 +1,73 @@
+name: Evals
+
+# Runs the synthetic eval suites (evals/) against a Gemini model through the production
+# gateway handler and posts the scores in the run summary. Report-only for now: once a
+# baseline exists, a drop against it will block merges and model bumps.
+on:
+  pull_request:
+    paths:
+      - 'gateway/**'
+      - 'evals/**'
+      - '.github/workflows/evals.yml'
+  workflow_dispatch:
+    inputs:
+      model:
+        description: 'Model to evaluate (blank = the pinned model)'
+        required: false
+      repeats:
+        description: 'Runs per case'
+        required: false
+        default: '1'
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT_ID: joesdiary-d8211
+  WORKLOAD_IDENTITY_PROVIDER: projects/837714540398/locations/global/workloadIdentityPools/github/providers/joes-diary
+  SERVICE_ACCOUNT: github-deploy@joesdiary-d8211.iam.gserviceaccount.com
+
+jobs:
+  evals:
+    # Forks get no Google credentials, so only run for branches of this repository.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Authenticate to Google Cloud (keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run the evals
+        env:
+          EVAL_MODEL: ${{ inputs.model }}
+          EVAL_REPEATS: ${{ inputs.repeats || '1' }}
+          EVAL_OUT: ${{ runner.temp }}/eval-results
+        run: |
+          GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
+          echo "::add-mask::$GEMINI_API_KEY"
+          GEMINI_API_KEY="$GEMINI_API_KEY" node evals/run.js
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-results
+          path: ${{ runner.temp }}/eval-results
+          retention-days: 30
