@@ -26,6 +26,9 @@ on:
         description: 'Fail if quality drops against evals/baseline.json'
         type: boolean
         default: false
+      bakeoff:
+        description: 'Model bake-off instead: "auto" or a comma list of models (judge = pinned model unless set)'
+        required: false
 
 permissions:
   contents: read
@@ -65,6 +68,7 @@ jobs:
 
       # The key is read from Secret Manager, masked, and only exists inside these steps.
       - name: Check the judge against the hand labels
+        if: inputs.bakeoff == ''
         env:
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
           EVAL_CALIBRATE: '1'
@@ -75,6 +79,7 @@ jobs:
           GEMINI_API_KEY="$GEMINI_API_KEY" node evals/run.js
 
       - name: Run the evals
+        if: inputs.bakeoff == ''
         env:
           EVAL_MODEL: ${{ inputs.model }}
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
@@ -85,6 +90,30 @@ jobs:
           GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
           echo "::add-mask::$GEMINI_API_KEY"
           GEMINI_API_KEY="$GEMINI_API_KEY" node evals/run.js
+
+      # Same cases, same judge, one run per model, then one comparison table.
+      - name: Model bake-off
+        if: inputs.bakeoff != ''
+        env:
+          BAKEOFF: ${{ inputs.bakeoff }}
+          EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
+          EVAL_REPEATS: ${{ inputs.repeats || '3' }}
+          OUT: ${{ runner.temp }}/eval-results
+        run: |
+          GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
+          echo "::add-mask::$GEMINI_API_KEY"
+          export GEMINI_API_KEY
+          PINNED_MODEL=$(sed -n 's/^GEMINI_MODEL=//p' gateway/.env.joesdiary-d8211)
+          export PINNED_MODEL
+          export EVAL_JUDGE_MODEL="${EVAL_JUDGE_MODEL:-$PINNED_MODEL}"
+          if [ "$BAKEOFF" = auto ]; then MODELS=$(node evals/bakeoff.js candidates "$PINNED_MODEL"); else MODELS="$BAKEOFF"; fi
+          echo "Models: $MODELS (judge $EVAL_JUDGE_MODEL)"
+          for MODEL in ${MODELS//,/ }; do
+            echo "::group::$MODEL"
+            EVAL_MODEL="$MODEL" EVAL_OUT="$OUT/$MODEL" node evals/run.js || echo "::warning::$MODEL run failed"
+            echo "::endgroup::"
+          done
+          node evals/bakeoff.js compare "$OUT"
 
       - uses: actions/upload-artifact@v4
         if: always()
