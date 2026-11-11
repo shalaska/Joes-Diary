@@ -102,16 +102,18 @@ const main = async () => {
                         ? suite.makeHandler({ callTools, model: featureModels[suite.feature] || model, log })
                         : createHandler({ callModel, model, featureModels, log });
                     let output = null;
+                    let errorMessage = '';
                     try {
                         output = (await handle({ feature: suite.feature, input: suite.input(testCase) })).output;
-                    } catch {
-                        // The outcome is in the log entry.
+                    } catch (error) {
+                        // The outcome is in the log entry; the message (e.g. the HTTP status) goes in the report.
+                        errorMessage = error.message;
                     }
                     // ok_at_limit still has an answer: grade it, and let the suite flag the limit.
                     const answered = logEntry?.outcome === 'ok' || logEntry?.outcome === 'ok_at_limit';
                     const checks = answered
                         ? suite.grade(testCase, output, logEntry)
-                        : [{ name: 'gateway_ok', pass: false, detail: logEntry?.outcome ?? 'no log' }];
+                        : [{ name: 'gateway_ok', pass: false, detail: [logEntry?.outcome ?? 'no log', errorMessage].filter(Boolean).join(': ') }];
                     let judged = null;
                     if (judge && answered) {
                         judged = await judge(suite.feature, (suite.judgeInput || suite.input)(testCase), output)
