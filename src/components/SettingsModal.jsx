@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Save, ShieldCheck, MessageSquare, Calendar } from 'lucide-react';
+import { X, Save, ShieldCheck, MessageSquare, Calendar, Key } from 'lucide-react';
 import NotionSettings from './NotionSettings';
 import DataExportSettings from './DataExportSettings';
 import SiriShortcutSettings from './SiriShortcutSettings';
