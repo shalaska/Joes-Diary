@@ -107,11 +107,13 @@ const main = async () => {
                     } catch {
                         // The outcome is in the log entry.
                     }
-                    const checks = logEntry?.outcome === 'ok'
+                    // ok_at_limit still has an answer: grade it, and let the suite flag the limit.
+                    const answered = logEntry?.outcome === 'ok' || logEntry?.outcome === 'ok_at_limit';
+                    const checks = answered
                         ? suite.grade(testCase, output, logEntry)
                         : [{ name: 'gateway_ok', pass: false, detail: logEntry?.outcome ?? 'no log' }];
                     let judged = null;
-                    if (judge && logEntry?.outcome === 'ok') {
+                    if (judge && answered) {
                         judged = await judge(suite.feature, (suite.judgeInput || suite.input)(testCase), output)
                             .catch(error => ({ error: error.message }));
                         // A judge failure is reported, but never counted against the model under test.

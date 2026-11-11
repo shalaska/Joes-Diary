@@ -9,6 +9,8 @@ export const ASK_CASES = [
     { id: 'single-fact-place', question: 'Where did we go for Maya\'s birthday dinner?', expectDays: ['2026-02-21'], mustMentionAny: ['Lantern'] },
     { id: 'vet-cost', question: 'How much did Biscuit\'s tooth cost?', expectDays: ['2026-01-26'], mustMentionAny: ['340'] },
     { id: 'when-stuck-work', question: 'When did I feel stuck at work, and what got me unstuck?', expectDays: ['2026-01-21', '2026-01-30', '2026-02-03'], minCited: 2, mustMentionAny: ['archive', 'Priya'] },
+    // From a live answer that read "stuck" as stranded at the office. The last time Joe felt stuck on work was 30 January.
+    { id: 'stuck-at-work-feeling', question: 'when did i last get stuck at work', expectDays: ['2026-01-30'], mustMentionAny: ['Atlas', 'ownership'], mustNotInclude: ['stranded', 'locked in', 'trapped at', 'stuck at the office'] },
     { id: 'synonym-needed', question: 'Was I ever going round in circles on something?', expectDays: ['2026-01-30', '2026-01-21', '2026-03-06'], mustMentionAny: ['Atlas', 'move', 'ownership'] },
     { id: 'which-flat', question: 'Which flats did I look at, and why did I pick the one I did?', expectDays: ['2026-02-05', '2026-02-11'], minCited: 2, mustMentionAny: ['station'] },
     { id: 'move-day', question: 'How did moving day go?', expectDays: ['2026-03-14'], mustMentionAny: ['late', 'sofa', 'Tom', 'Biscuit'] },

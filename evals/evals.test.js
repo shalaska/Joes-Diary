@@ -202,6 +202,8 @@ describe('gradeAsk', () => {
     it('flags invented days, missing citations and blown budgets', () => {
         expect(failed(gradeAsk(c, { answer: 'April [2026-01-09]', citedDays: ['2026-01-09'] }, { ...log, toolCalls: 9 }, DIARY_DAYS)))
             .toEqual(['no_invented_days', 'cites_expected_days', 'within_tool_budget']);
+        expect(failed(gradeAsk(c, { answer: '19 April [2026-01-08]', citedDays: ['2026-01-08'] }, { ...log, toolCalls: 8, outcome: 'ok_at_limit' }, DIARY_DAYS)))
+            .toEqual(['within_tool_budget']);
     });
 
     it('wants an honest not-found after a search', () => {

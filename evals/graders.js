@@ -127,6 +127,6 @@ export const gradeAsk = (testCase, output, logEntry = {}, knownDays = new Set())
         checks.push(check('cites_nothing', cited.length === 0, cited.join(', ')));
         checks.push(check('searched_before_not_found', (tools.search_entries || 0) >= 1, JSON.stringify(tools)));
     }
-    checks.push(check('within_tool_budget', (logEntry.toolCalls ?? 0) <= 8 && logEntry.outcome !== 'step_limit', `${logEntry.toolCalls} calls, ${logEntry.outcome}`));
+    checks.push(check('within_tool_budget', (logEntry.toolCalls ?? 0) <= 8 && logEntry.outcome === 'ok', `${logEntry.toolCalls} calls, ${logEntry.outcome}`));
     return checks;
 };
