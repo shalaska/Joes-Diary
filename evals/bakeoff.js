@@ -5,6 +5,7 @@
 //   GEMINI_API_KEY=... node evals/bakeoff.js candidates <pinned-model>
 //   node evals/bakeoff.js compare <dir-with-one-subdir-per-model>
 import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createGeminiClient } from '../gateway/src/gemini.js';
 import { listModels } from './models.js';
 
 // Stable, general models only: no previews, dated snapshots, "latest" aliases, tts or image.
@@ -78,7 +79,18 @@ const main = async () => {
     if (command === 'candidates') {
         const names = await listModels(process.env.GEMINI_API_KEY);
         console.error(`Models with generateContent: ${names.join(', ')}`);
-        console.log(bakeoffCandidates(names, arg).join(','));
+        // Some listed models are not callable with this key (gemini-2.5-pro returns 404), so probe each.
+        const callModel = createGeminiClient({ apiKey: process.env.GEMINI_API_KEY, timeoutMs: 30000 });
+        const callable = [];
+        for (const name of bakeoffCandidates(names, arg)) {
+            try {
+                await callModel({ model: name, prompt: 'Reply with OK.' });
+                callable.push(name);
+            } catch (error) {
+                console.error(`Skipping ${name}: ${error.message}`);
+            }
+        }
+        console.log(callable.join(','));
         return;
     }
     if (command === 'compare') {
