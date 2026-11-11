@@ -1,0 +1,29 @@
+{
+  "model": "gemini-3.8-flash",
+  "judgeModel": "gemini-3.8-flash",
+  "repeats": 5,
+  "promptVersions": {
+    "extractTodos": "todos-v3",
+    "calendarNote": "calendar-note-v2",
+    "chat": "chat-v3",
+    "edit": "edit-v1"
+  },
+  "features": {
+    "extractTodos": {
+      "passRate": 0.98,
+      "judgeMeans": {}
+    },
+    "calendarNote": {
+      "passRate": 1,
+      "judgeMeans": { "grounded": 5, "coherent": 4.9, "useful_insight": 4.7, "respects_overlap": 5 }
+    },
+    "chat": {
+      "passRate": 0.9,
+      "judgeMeans": { "answers_the_point": 5, "grounded": 4.9, "tone": 4.4, "concise": 4.8 }
+    },
+    "edit": {
+      "passRate": 0.93,
+      "judgeMeans": { "follows_instruction": 5, "preserves_meaning": 4.7, "clean_output": 5 }
+    }
+  }
+}
