@@ -19,7 +19,8 @@ export const summarise = (results, { model, repeats, judgeModel = null }) => {
         f.latencies.push(result.latencyMs);
         f.inputTokens += result.inputTokens ?? 0;
         f.outputTokens += result.outputTokens ?? 0;
-        if (result.judge) {
+        if (result.judge?.error) f.judgeErrors = (f.judgeErrors ?? 0) + 1;
+        if (result.judge && !result.judge.error) {
             f.judged += 1;
             f.judgePassed += result.judge.pass ? 1 : 0;
             for (const [name, score] of Object.entries(result.judge.scores ?? {})) (f.scores[name] ??= []).push(score);
@@ -33,6 +34,7 @@ export const summarise = (results, { model, repeats, judgeModel = null }) => {
         inputTokens: f.inputTokens,
         outputTokens: f.outputTokens,
         judgePassRate: f.judged ? f.judgePassed / f.judged : null,
+        judgeErrors: f.judgeErrors ?? 0,
         meanScores: Object.fromEntries(Object.entries(f.scores).map(([name, list]) => [name, Math.round((list.reduce((a, b) => a + b, 0) / list.length) * 10) / 10])),
     }]));
     const runs = results.length;
@@ -55,7 +57,7 @@ export const toMarkdown = (summary, results) => {
         '',
         '| Feature | Cases passed | Checks passed | Judge passed | Mean judge scores (1-5) | Median latency (ms) | Tokens in / out |',
         '| --- | --- | --- | --- | --- | --- | --- |',
-        ...Object.entries(summary.byFeature).map(([name, f]) => `| ${name} | ${pct(f.passRate)} (${Math.round(f.passRate * f.runs)}/${f.runs}) | ${pct(f.checkPassRate)} | ${f.judgePassRate === null ? 'n/a' : pct(f.judgePassRate)} | ${Object.entries(f.meanScores).map(([k, v]) => `${k} ${v}`).join(', ') || 'n/a'} | ${f.medianLatencyMs ?? '?'} | ${f.inputTokens} / ${f.outputTokens} |`),
+        ...Object.entries(summary.byFeature).map(([name, f]) => `| ${name} | ${pct(f.passRate)} (${Math.round(f.passRate * f.runs)}/${f.runs}) | ${pct(f.checkPassRate)} | ${f.judgePassRate === null ? 'n/a' : pct(f.judgePassRate)}${f.judgeErrors ? ` (${f.judgeErrors} judge errors)` : ''} | ${Object.entries(f.meanScores).map(([k, v]) => `${k} ${v}`).join(', ') || 'n/a'} | ${f.medianLatencyMs ?? '?'} | ${f.inputTokens} / ${f.outputTokens} |`),
         '',
     ];
     const failures = results.filter(r => !r.pass);

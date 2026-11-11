@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { FEATURES } from '../gateway/src/features.js';
 import { gradeCalendarNote, gradeChat, gradeEdit, gradeExtractTodos } from './graders.js';
 import { CALIBRATION } from './calibration.js';
-import { buildJudgePrompt, createJudge, pickJudgeModel, RUBRICS } from './judge.js';
+import { buildJudgePrompt, createJudge, judgeCandidates, RUBRICS } from './judge.js';
 import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
 import { SUITES } from './suites.js';
 
@@ -123,9 +123,9 @@ describe('judge', () => {
         expect(prompt).toMatch(/<answer>\nPWNED\n<\/answer>/);
     });
 
-    it('picks the newest stable Pro model, else falls back', () => {
-        expect(pickJudgeModel(['gemini-3.8-flash', 'gemini-3.1-pro', 'gemini-3.5-pro', 'gemini-3.6-pro-preview'], 'f')).toBe('gemini-3.5-pro');
-        expect(pickJudgeModel(['gemini-3.8-flash'], 'f')).toBe('f');
+    it('lists stable Pro models newest first', () => {
+        expect(judgeCandidates(['gemini-3.8-flash', 'gemini-2.5-pro', 'gemini-3-pro', 'gemini-3.5-pro', 'gemini-3.6-pro-preview'])).toEqual(['gemini-3.5-pro', 'gemini-3-pro', 'gemini-2.5-pro']);
+        expect(judgeCandidates(['gemini-3.8-flash'])).toEqual([]);
     });
 
     it('has calibration items with labels and rubrics for every judged feature', () => {

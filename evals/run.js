@@ -14,7 +14,7 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createHandler } from '../gateway/src/handler.js';
 import { createGeminiClient } from '../gateway/src/gemini.js';
 import { CALIBRATION } from './calibration.js';
-import { createJudge, pickJudgeModel } from './judge.js';
+import { createJudge, judgeCandidates } from './judge.js';
 import { readPinnedModel } from '../scripts/geminiModel.js';
 import { SUITES } from './suites.js';
 import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
@@ -35,9 +35,26 @@ const runPool = async (jobs, limit) => {
 };
 
 const listModels = async (apiKey) => {
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=200', { headers: { 'x-goog-api-key': apiKey } });
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { headers: { 'x-goog-api-key': apiKey } });
     if (!response.ok) return [];
-    return ((await response.json()).models || []).map(m => m.name.replace(/^models\//, ''));
+    return ((await response.json()).models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map(m => m.name.replace(/^models\//, ''));
+};
+
+// Newest stable Pro that actually answers, else the model under test.
+const chooseJudgeModel = async (apiKey, callModel, fallback) => {
+    const candidates = judgeCandidates(await listModels(apiKey));
+    console.log(`Judge candidates: ${candidates.join(', ') || 'none'}`);
+    for (const name of candidates) {
+        try {
+            await callModel({ model: name, prompt: 'Reply with OK.' });
+            return name;
+        } catch (error) {
+            console.log(`Judge candidate ${name} is not callable: ${error.message}`);
+        }
+    }
+    return fallback;
 };
 
 const calibrate = async (judge, judgeModel, outDir) => {
@@ -62,7 +79,7 @@ const main = async () => {
 
     const callModel = createGeminiClient({ apiKey, timeoutMs: 60000 });
     const useJudge = process.env.EVAL_JUDGE !== '0';
-    const judgeModel = process.env.EVAL_JUDGE_MODEL || pickJudgeModel(await listModels(apiKey), model);
+    const judgeModel = process.env.EVAL_JUDGE_MODEL || (useJudge || process.env.EVAL_CALIBRATE === '1' ? await chooseJudgeModel(apiKey, callModel, model) : null);
     const judge = useJudge ? createJudge({ callModel, model: judgeModel }) : null;
 
     if (process.env.EVAL_CALIBRATE === '1') {
@@ -90,8 +107,9 @@ const main = async () => {
                     let judged = null;
                     if (judge && logEntry?.outcome === 'ok') {
                         judged = await judge(suite.feature, suite.input(testCase), output)
-                            .catch(error => ({ pass: false, scores: {}, reason: `judge error: ${error.message}` }));
-                        if (judged) checks.push({ name: 'judge', pass: judged.pass, detail: `${Object.entries(judged.scores).map(([k, v]) => `${k} ${v}`).join(', ')}. ${judged.reason}` });
+                            .catch(error => ({ error: error.message }));
+                        // A judge failure is reported, but never counted against the model under test.
+                        if (judged && !judged.error) checks.push({ name: 'judge', pass: judged.pass, detail: `${Object.entries(judged.scores).map(([k, v]) => `${k} ${v}`).join(', ')}. ${judged.reason}` });
                     }
                     return {
                         feature: suite.feature, caseId: testCase.id, run,

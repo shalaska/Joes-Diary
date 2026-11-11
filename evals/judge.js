@@ -77,14 +77,11 @@ export const createJudge = ({ callModel, model }) => async (feature, input, outp
     };
 };
 
-// The judge model: newest stable Pro if the key can use one, else the model under test.
-export const pickJudgeModel = (modelNames, fallback) => {
-    let best = null;
-    for (const name of modelNames) {
-        const match = /^gemini-(\d+)\.(\d+)-pro$/.exec(name);
-        if (!match) continue;
-        const version = [Number(match[1]), Number(match[2])];
-        if (!best || version[0] > best.version[0] || (version[0] === best.version[0] && version[1] > best.version[1])) best = { name, version };
-    }
-    return best?.name ?? fallback;
-};
+// Judge model candidates: stable Pro models (gemini-3-pro, gemini-3.5-pro...), newest first.
+// The caller probes them in order, because a listed model is not always callable.
+export const judgeCandidates = (modelNames) => modelNames
+    .map(name => ({ name, match: /^gemini-(\d+)(?:\.(\d+))?-pro$/.exec(name) }))
+    .filter(entry => entry.match)
+    .map(entry => ({ name: entry.name, version: [Number(entry.match[1]), Number(entry.match[2] ?? 0)] }))
+    .sort((a, b) => (b.version[0] - a.version[0]) || (b.version[1] - a.version[1]))
+    .map(entry => entry.name);
