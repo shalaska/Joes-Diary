@@ -4,11 +4,13 @@ import Sidebar from './components/Sidebar';
 import TodoSection from './components/TodoSection';
 import Auth from './components/Auth';
 import GeminiPanel from './components/GeminiPanel';
+import AskDiaryPanel from './components/AskDiaryPanel';
+import { dayToGroupId } from './services/askDiaryService';
 import CalendarPanel from './components/CalendarPanel';
 import ScheduleTodoModal from './components/ScheduleTodoModal';
 import { AuthProvider } from './contexts/AuthContext';
 import { useAuth } from './contexts/authContext';
-import { Menu, Book, Plus, Sparkles, ListTodo, CheckCircle2, X } from 'lucide-react';
+import { Menu, Book, BookOpen, Plus, Sparkles, ListTodo, CheckCircle2, X } from 'lucide-react';
 import SettingsModal from './components/SettingsModal';
 
 import { db as localDB } from './db';
@@ -300,6 +302,7 @@ function DiaryApp() {
 
   // Selected Date Management
   const [selectedDate, setSelectedDate] = useState(null);
+  const [isAskDiaryOpen, setIsAskDiaryOpen] = useState(false);
 
   useEffect(() => {
     if (!isLoading && !selectedDate) {
@@ -853,6 +856,13 @@ function DiaryApp() {
                           <ListTodo size={18} />
                           <span>Create Todos from Today</span>
                         </button>
+                        <button
+                          onClick={() => setIsAskDiaryOpen(true)}
+                          className="flex-shrink-0 flex items-center justify-center gap-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 py-3 px-6 rounded-xl transition-colors font-medium border border-indigo-200 border-dashed"
+                        >
+                          <BookOpen size={18} />
+                          <span>Ask my diary</span>
+                        </button>
                       </div>
                     ) : (
                       <GeminiPanel
@@ -865,6 +875,20 @@ function DiaryApp() {
                         onAddToNote={handleSaveGlobalAnalysis}
                         onAddTodos={handleAddTodos}
                         saveLabel="Save as Note"
+                      />
+                    )}
+                    {isAskDiaryOpen && (
+                      <AskDiaryPanel
+                        calendarContext={calendarContext}
+                        onClose={() => setIsAskDiaryOpen(false)}
+                        onOpenDay={(day) => {
+                          const groupId = dayToGroupId(day);
+                          if (groupedEntries[groupId]) {
+                            setView('diary');
+                            setSelectedDate(groupId);
+                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                          }
+                        }}
                       />
                     )}
                   </div>
