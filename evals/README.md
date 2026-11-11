@@ -23,5 +23,25 @@ GEMINI_API_KEY=... EVAL_MODEL=gemini-x.y-pro node evals/run.js
 ```
 
 CI runs them on every PR that touches `gateway/` or `evals/`, and on demand from the
-Actions tab (pick any model and judge). Next: a gate against the stored baseline for PRs
-and the weekly model bump, and a model bake-off.
+Actions tab (pick any model and judge).
+
+## The gate
+
+`gate.js` compares a run with `baseline.json` and fails the check when a feature drops
+more than its noise tolerance: 10 points of cases passing, or 0.3 on any judge criterion.
+The baseline comes from a noise check (every case run 5 times on an unchanged prompt and
+model). Some cases are flaky rather than broken, for example a todo priority that is right
+3 times in 5, so the tolerance is set so that one or two flaky failures in a 3-repeat PR
+run do not block a merge.
+
+- PRs run each case 3 times with the gate on (`EVAL_GATE=1`).
+- The weekly model bump runs the evals on the candidate model with the gate on, so a new
+  model that is worse on our cases opens its PR marked "(evals regressed)" and fails.
+- After an intended change (a new prompt that trades one thing for another, or a new
+  pinned model), refresh the baseline in the same PR and say why:
+
+```sh
+GEMINI_API_KEY=... EVAL_REPEATS=5 EVAL_WRITE_BASELINE=1 node evals/run.js
+```
+
+Next: a model bake-off.

@@ -95,7 +95,7 @@ const main = async () => {
         '| --- | --- | --- | --- | --- |',
         ...rows.map(row => `| ${row.feature} | ${row.outcome} | ${row.latencyMs} | ${row.tokens} | ${row.modelVersion} |`),
         '',
-        'This is a format and availability check, not a quality eval. Quality evals arrive in Phase 1 and will gate this PR.',
+        'This is a format and availability check. The quality evals against the baseline follow below.',
         '',
         'Merging deploys the gateway with the new model. To roll back, revert this PR.',
     ].join('\n');

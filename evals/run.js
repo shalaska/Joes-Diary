@@ -8,7 +8,9 @@
 // Options (env): EVAL_MODEL, EVAL_FEATURES (comma list), EVAL_REPEATS (default 1),
 // EVAL_OUT (default eval-results), EVAL_MIN_PASS_RATE (fail the run below this, 0-1),
 // EVAL_JUDGE_MODEL (default: newest stable Pro), EVAL_JUDGE=0 (code graders only),
-// EVAL_CALIBRATE=1 (only score the judge against the hand labels in calibration.js).
+// EVAL_CALIBRATE=1 (only score the judge against the hand labels in calibration.js),
+// EVAL_GATE=1 (fail the run if it regresses against evals/baseline.json),
+// EVAL_WRITE_BASELINE=1 (write evals/baseline.json from this run).
 // Inputs are synthetic. Nothing here reads or sends diary data.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHandler } from '../gateway/src/handler.js';
@@ -18,6 +20,8 @@ import { createJudge, judgeCandidates } from './judge.js';
 import { readPinnedModel } from '../scripts/geminiModel.js';
 import { SUITES } from './suites.js';
 import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
+import { compareToBaseline, gateMarkdown, toBaseline } from './gate.js';
+import { FEATURES } from '../gateway/src/features.js';
 
 const CONCURRENCY = 4;
 
@@ -127,11 +131,29 @@ const main = async () => {
     const summary = summarise(results, { model, repeats, judgeModel: judge ? judgeModel : null });
     mkdirSync(outDir, { recursive: true });
     writeFileSync(`${outDir}/results.json`, JSON.stringify({ summary, results }, null, 2));
-    const markdown = toMarkdown(summary, results);
+    let markdown = toMarkdown(summary, results);
+    let gateFailed = false;
+    if (process.env.EVAL_GATE === '1') {
+        const baseline = JSON.parse(readFileSync('evals/baseline.json', 'utf8'));
+        const regressions = compareToBaseline(summary, baseline);
+        gateFailed = regressions.length > 0;
+        markdown = `${gateMarkdown(regressions, baseline)}\n${markdown}`;
+        writeFileSync(`${outDir}/gate.json`, JSON.stringify({ passed: !gateFailed, regressions }, null, 2));
+    }
+    if (process.env.EVAL_WRITE_BASELINE === '1') {
+        const promptVersions = Object.fromEntries(Object.entries(FEATURES).map(([name, spec]) => [name, spec.promptVersion]));
+        const baselineJson = `${JSON.stringify(toBaseline(summary, { promptVersions }), null, 2)}\n`;
+        writeFileSync('evals/baseline.json', baselineJson);
+        console.log(`New baseline:\n${baselineJson}`);
+    }
     writeFileSync(`${outDir}/report.md`, markdown);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown);
     console.log(markdown);
 
+    if (gateFailed) {
+        console.error('Eval gate failed: quality dropped beyond the noise tolerance. See the report.');
+        process.exit(1);
+    }
     const minPassRate = process.env.EVAL_MIN_PASS_RATE;
     if (minPassRate && summary.overall.passRate < Number(minPassRate)) {
         console.error(`Pass rate ${summary.overall.passRate.toFixed(2)} is below ${minPassRate}.`);

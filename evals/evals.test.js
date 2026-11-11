@@ -6,6 +6,7 @@ import { gradeCalendarNote, gradeChat, gradeEdit, gradeExtractTodos } from './gr
 import { CALIBRATION } from './calibration.js';
 import { buildJudgePrompt, createJudge, judgeCandidates, RUBRICS } from './judge.js';
 import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
+import { compareToBaseline, gateMarkdown, toBaseline } from './gate.js';
 import { SUITES } from './suites.js';
 
 const failed = (checks) => checks.filter(c => !c.pass).map(c => c.name);
@@ -144,5 +145,45 @@ describe('judge', () => {
         ]);
         expect(md).toContain('1/2 items (50%)');
         expect(md).toContain('Let through 1 bad answer(s)');
+    });
+});
+
+describe('gate', () => {
+    const baseline = {
+        model: 'm', repeats: 5,
+        features: {
+            chat: { passRate: 0.9, judgeMeans: { tone: 4.6, grounded: 5 } },
+            extractTodos: { passRate: 1, judgeMeans: {} },
+        },
+    };
+    const summary = (chat, todos, tone = 4.6) => ({
+        byFeature: {
+            chat: { passRate: chat, meanScores: { tone, grounded: 5 } },
+            extractTodos: { passRate: todos, meanScores: {} },
+        },
+    });
+
+    it('passes a run within the noise tolerance', () => {
+        expect(compareToBaseline(summary(0.82, 0.95, 4.4), baseline)).toEqual([]);
+    });
+
+    it('flags a drop in cases passing or a judge score beyond tolerance', () => {
+        const regressions = compareToBaseline(summary(0.7, 1, 4.1), baseline);
+        expect(regressions.map(r => `${r.feature}:${r.metric}`)).toEqual(['chat:cases passing', 'chat:judge tone']);
+        expect(gateMarkdown(regressions, baseline)).toContain('Gate: FAILED');
+    });
+
+    it('does not gate on judge scores when the judge did not run', () => {
+        const noJudge = { byFeature: { chat: { passRate: 0.9, meanScores: {} }, extractTodos: { passRate: 1, meanScores: {} } } };
+        expect(compareToBaseline(noJudge, baseline)).toEqual([]);
+    });
+
+    it('flags a feature missing from the run', () => {
+        expect(compareToBaseline({ byFeature: { chat: { passRate: 1, meanScores: {} } } }, baseline)[0]).toMatchObject({ feature: 'extractTodos', metric: 'missing' });
+    });
+
+    it('builds a baseline from a summary', () => {
+        const built = toBaseline({ model: 'm', judgeModel: 'j', repeats: 5, byFeature: { chat: { passRate: 0.876, meanScores: { tone: 4.6 } } } }, { promptVersions: { chat: 'chat-v3' } });
+        expect(built).toEqual({ model: 'm', judgeModel: 'j', repeats: 5, promptVersions: { chat: 'chat-v3' }, features: { chat: { passRate: 0.88, judgeMeans: { tone: 4.6 } } } });
     });
 });

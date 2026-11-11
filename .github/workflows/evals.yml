@@ -1,8 +1,9 @@
 name: Evals
 
 # Runs the synthetic eval suites (evals/) against a Gemini model through the production
-# gateway handler and posts the scores in the run summary. Report-only for now: once a
-# baseline exists, a drop against it will block merges and model bumps.
+# gateway handler and posts the scores in the run summary. On pull requests every case runs
+# 3 times and the run fails if any feature drops beyond the noise tolerance against
+# evals/baseline.json (see evals/gate.js). Manual runs are report-only unless gate is ticked.
 on:
   pull_request:
     paths:
@@ -21,6 +22,10 @@ on:
       judge_model:
         description: 'Judge model (blank = newest stable Pro)'
         required: false
+      gate:
+        description: 'Fail if quality drops against evals/baseline.json'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -73,7 +78,8 @@ jobs:
         env:
           EVAL_MODEL: ${{ inputs.model }}
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
-          EVAL_REPEATS: ${{ inputs.repeats || '1' }}
+          EVAL_REPEATS: ${{ inputs.repeats || '3' }}
+          EVAL_GATE: ${{ (github.event_name == 'pull_request' || inputs.gate) && '1' || '0' }}
           EVAL_OUT: ${{ runner.temp }}/eval-results
         run: |
           GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
