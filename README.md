@@ -59,7 +59,8 @@ Browser (React 19 + Vite, Firebase Hosting)
   enforced by the rules, not by hiding it.
 - **Deploys** use GitHub OIDC and Workload Identity Federation, so there is no
   long-lived Google key anywhere. Only this repository can impersonate the
-  deploy account, and that account can only manage Hosting and Firestore rules.
+  deploy account, which holds only the roles it needs to deploy Hosting,
+  Firestore rules and the gateway function.
 
 ## Development
 
@@ -76,14 +77,23 @@ npm run build
 
 Every pull request runs lint, unit tests, rules tests and a build, then deploys a
 7-day preview channel and links it in the run summary. Merging to `main` deploys
-the site and the Firestore rules. See
-[`.github/workflows/firebase-hosting.yml`](.github/workflows/firebase-hosting.yml).
+the site, the Firestore rules and the LLM gateway
+([`firebase-hosting.yml`](.github/workflows/firebase-hosting.yml)), and the
+calendar Worker when it changes
+([`cloudflare-worker.yml`](.github/workflows/cloudflare-worker.yml)).
+
+**Model updates.** The gateway pins an exact Gemini version. Every Monday
+[`gemini-model-bump.yml`](.github/workflows/gemini-model-bump.yml) looks for a
+newer stable Flash model, runs every AI feature against it on synthetic input,
+and opens a pull request to switch only if all of them pass. A new model is a
+release like any other: reviewed, tested and revertable.
 
 ## Roadmap
 
-1. **Foundations** (now): rules in the repo, closed sign-up, narrower scopes,
-   CI gate, and the server-side LLM gateway.
-2. **Evals**: offline eval suites on synthetic data for todo extraction and
+1. **Foundations** (done, November 2026): rules in the repo, closed sign-up,
+   narrower scopes, CI gate, the server-side LLM gateway, spend caps, an
+   authenticated calendar proxy and pinned, auto-bumped models.
+2. **Evals** (next): offline eval suites on synthetic data for todo extraction and
    calendar notes, run in CI so a prompt or model change that makes things worse
    cannot ship.
 3. **An agent with permission tiers**: read tools run freely, writes are
@@ -94,3 +104,8 @@ the site and the Firestore rules. See
 
 Diary content never leaves Firestore for analytics or evals: eval datasets are
 synthetic, and logs hold metadata only.
+
+## Licence
+
+[MIT](LICENSE). This is a personal project: issues and ideas are welcome, but it
+is built for one user and I may not take pull requests.
