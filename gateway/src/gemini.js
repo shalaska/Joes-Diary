@@ -12,11 +12,7 @@ export class ModelError extends Error {
     }
 }
 
-export const createGeminiClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 30000 }) => async ({ model, prompt, schema }) => {
-    const generationConfig = schema
-        ? { responseMimeType: 'application/json', responseSchema: schema }
-        : {};
-
+const generate = async ({ apiKey, fetchImpl, timeoutMs, model, body }) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response;
@@ -24,7 +20,7 @@ export const createGeminiClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 3000
         response = await fetchImpl(`${API_BASE}/models/${encodeURIComponent(model)}:generateContent`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-            body: JSON.stringify({ contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig }),
+            body: JSON.stringify(body),
             signal: controller.signal,
         });
     } catch (error) {
@@ -40,16 +36,44 @@ export const createGeminiClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 3000
         });
     }
 
-    const body = await response.json();
-    const candidate = body.candidates?.[0];
-    const text = candidate?.content?.parts?.map(part => part.text || '').join('') ?? '';
+    const json = await response.json();
+    const candidate = json.candidates?.[0];
     return {
-        text,
+        content: candidate?.content ?? { role: 'model', parts: [] },
         finishReason: candidate?.finishReason || null,
         usage: {
-            inputTokens: body.usageMetadata?.promptTokenCount ?? null,
-            outputTokens: body.usageMetadata?.candidatesTokenCount ?? null,
+            inputTokens: json.usageMetadata?.promptTokenCount ?? null,
+            outputTokens: json.usageMetadata?.candidatesTokenCount ?? null,
         },
-        modelVersion: body.modelVersion || model,
+        modelVersion: json.modelVersion || model,
     };
+};
+
+const textOf = (content) => (content.parts || []).map(part => part.text || '').join('');
+
+// One prompt in, one answer out (optionally JSON with a schema). Used by the single-shot features.
+export const createGeminiClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 30000 }) => async ({ model, prompt, schema }) => {
+    const generationConfig = schema
+        ? { responseMimeType: 'application/json', responseSchema: schema }
+        : {};
+    const result = await generate({
+        apiKey, fetchImpl, timeoutMs, model,
+        body: { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig },
+    });
+    return { text: textOf(result.content), finishReason: result.finishReason, usage: result.usage, modelVersion: result.modelVersion };
+};
+
+// One turn of a tool-using conversation, for the agent. Returns the model's content as sent,
+// so the caller can append it to the history unchanged (Gemini 3 needs its thought signatures back).
+export const createGeminiToolClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 30000 }) => async ({ model, system, contents, functionDeclarations }) => {
+    const result = await generate({
+        apiKey, fetchImpl, timeoutMs, model,
+        body: {
+            systemInstruction: { parts: [{ text: system }] },
+            contents,
+            ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
+        },
+    });
+    const calls = (result.content.parts || []).filter(part => part.functionCall).map(part => part.functionCall);
+    return { ...result, text: textOf(result.content), calls };
 };

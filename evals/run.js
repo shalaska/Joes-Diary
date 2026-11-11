@@ -14,7 +14,7 @@
 // Inputs are synthetic. Nothing here reads or sends diary data.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHandler } from '../gateway/src/handler.js';
-import { createGeminiClient } from '../gateway/src/gemini.js';
+import { createGeminiClient, createGeminiToolClient } from '../gateway/src/gemini.js';
 import { CALIBRATION } from './calibration.js';
 import { createJudge, judgeCandidates } from './judge.js';
 import { readFeatureModels, readPinnedModel } from '../scripts/geminiModel.js';
@@ -80,6 +80,7 @@ const main = async () => {
     const outDir = process.env.EVAL_OUT || 'eval-results';
 
     const callModel = createGeminiClient({ apiKey, timeoutMs: 60000 });
+    const callTools = createGeminiToolClient({ apiKey, timeoutMs: 60000 });
     const useJudge = process.env.EVAL_JUDGE !== '0';
     const judgeModel = process.env.EVAL_JUDGE_MODEL || (useJudge || process.env.EVAL_CALIBRATE === '1' ? await chooseJudgeModel(apiKey, callModel, model) : null);
     const judge = useJudge ? createJudge({ callModel, model: judgeModel }) : null;
@@ -96,7 +97,10 @@ const main = async () => {
             for (let run = 1; run <= repeats; run++) {
                 jobs.push(async () => {
                     let logEntry = null;
-                    const handle = createHandler({ callModel, model, featureModels, log: (entry) => { logEntry = entry; } });
+                    const log = (entry) => { logEntry = entry; };
+                    const handle = suite.makeHandler
+                        ? suite.makeHandler({ callTools, model: featureModels[suite.feature] || model, log })
+                        : createHandler({ callModel, model, featureModels, log });
                     let output = null;
                     try {
                         output = (await handle({ feature: suite.feature, input: suite.input(testCase) })).output;
@@ -104,11 +108,11 @@ const main = async () => {
                         // The outcome is in the log entry.
                     }
                     const checks = logEntry?.outcome === 'ok'
-                        ? suite.grade(testCase, output)
+                        ? suite.grade(testCase, output, logEntry)
                         : [{ name: 'gateway_ok', pass: false, detail: logEntry?.outcome ?? 'no log' }];
                     let judged = null;
                     if (judge && logEntry?.outcome === 'ok') {
-                        judged = await judge(suite.feature, suite.input(testCase), output)
+                        judged = await judge(suite.feature, (suite.judgeInput || suite.input)(testCase), output)
                             .catch(error => ({ error: error.message }));
                         // A judge failure is reported, but never counted against the model under test.
                         if (judged && !judged.error) checks.push({ name: 'judge', pass: judged.pass, detail: `${Object.entries(judged.scores).map(([k, v]) => `${k} ${v}`).join(', ')}. ${judged.reason}` });
@@ -117,6 +121,7 @@ const main = async () => {
                         feature: suite.feature, caseId: testCase.id, run,
                         outcome: logEntry?.outcome, latencyMs: logEntry?.latencyMs,
                         inputTokens: logEntry?.inputTokens, outputTokens: logEntry?.outputTokens,
+                        toolCalls: logEntry?.toolCalls,
                         modelVersion: logEntry?.modelVersion, promptVersion: logEntry?.promptVersion,
                         pass: checks.every(c => c.pass), checks, output, judge: judged,
                     };

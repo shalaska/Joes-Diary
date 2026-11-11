@@ -10,3 +10,11 @@ export const callLlm = async (feature, input) => {
     const { data } = await llm({ feature, input });
     return data.output;
 };
+
+// The diary agent can take several model calls, so it gets a longer client timeout.
+const llmLong = httpsCallable(functions, 'llm', { timeout: 120000 });
+
+export const callLlmLong = async (feature, input) => {
+    const { data } = await llmLong({ feature, input });
+    return data.output;
+};
