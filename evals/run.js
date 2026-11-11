@@ -22,6 +22,7 @@ import { SUITES } from './suites.js';
 import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
 import { compareToBaseline, gateMarkdown, toBaseline } from './gate.js';
 import { FEATURES } from '../gateway/src/features.js';
+import { listModels } from './models.js';
 
 const CONCURRENCY = 4;
 
@@ -36,14 +37,6 @@ const runPool = async (jobs, limit) => {
     };
     await Promise.all(Array.from({ length: Math.min(limit, jobs.length) }, worker));
     return results;
-};
-
-const listModels = async (apiKey) => {
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { headers: { 'x-goog-api-key': apiKey } });
-    if (!response.ok) return [];
-    return ((await response.json()).models || [])
-        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-        .map(m => m.name.replace(/^models\//, ''));
 };
 
 // Newest stable Pro that actually answers, else the model under test.

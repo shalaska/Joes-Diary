@@ -44,4 +44,9 @@ run do not block a merge.
 GEMINI_API_KEY=... EVAL_REPEATS=5 EVAL_WRITE_BASELINE=1 node evals/run.js
 ```
 
-Next: a model bake-off.
+## Model bake-off
+
+Run the Evals workflow from the Actions tab with `bakeoff` set to `auto` (the pinned model
+plus the newest two stable Flash, Flash-Lite and Pro models) or to a comma list of models.
+Every model gets the same cases and the same judge (the pinned model unless `judge_model`
+is set), and the run summary ends with one comparison table (`evals/bakeoff.js`).
