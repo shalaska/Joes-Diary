@@ -33,6 +33,14 @@ export const readPinnedModel = (envText) => {
     return match ? match[1].trim() : null;
 };
 
+// Per-feature overrides from the same file, e.g. GEMINI_MODEL_TODOS -> { extractTodos: ... }.
+const FEATURE_KEYS = { TODOS: 'extractTodos' };
+export const readFeatureModels = (envText) => Object.fromEntries(
+    Object.entries(FEATURE_KEYS)
+        .map(([suffix, feature]) => [feature, new RegExp(`^GEMINI_MODEL_${suffix}=(.+)$`, 'm').exec(envText)?.[1].trim()])
+        .filter(([, model]) => model),
+);
+
 export const writePinnedModel = (envText, model) => {
     if (!/^GEMINI_MODEL=.*$/m.test(envText)) throw new Error('GEMINI_MODEL line not found');
     return envText.replace(/^GEMINI_MODEL=.*$/m, `GEMINI_MODEL=${model}`);

@@ -24,10 +24,17 @@ export const describeInput = (input) => {
 
 const stripFences = (text) => text.replace(/^\s*```(?:json|markdown)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
 
-export const createHandler = ({ callModel, model, log, now = () => Date.now() }) => {
+const assertPinned = (model) => {
     if (!model || /latest/i.test(model)) {
         throw new Error('The gateway needs an exact, pinned model version, not a "latest" alias.');
     }
+};
+
+// featureModels overrides the default model for single features, e.g. { extractTodos: 'gemini-3.1-flash-lite' }.
+export const createHandler = ({ callModel, model: defaultModel, featureModels: overrides = {}, log, now = () => Date.now() }) => {
+    assertPinned(defaultModel);
+    const featureModels = Object.fromEntries(Object.entries(overrides).filter(([, m]) => m)); // blank = default
+    Object.values(featureModels).forEach(assertPinned);
 
     return async ({ feature, input }) => {
         const spec = FEATURES[feature];
@@ -40,6 +47,7 @@ export const createHandler = ({ callModel, model, log, now = () => Date.now() })
             throw new GatewayError('invalid-argument', 'Invalid input');
         }
 
+        const model = featureModels[feature] || defaultModel;
         const promptVersion = spec.promptVersionFor ? spec.promptVersionFor(input) : spec.promptVersion;
         const started = now();
         const entry = { feature, promptVersion, model, outcome: 'error', latencyMs: null, inputTokens: null, outputTokens: null };
