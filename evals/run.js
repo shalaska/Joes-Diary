@@ -145,6 +145,8 @@ const main = async () => {
     let gateFailed = false;
     if (process.env.EVAL_GATE === '1') {
         const baseline = JSON.parse(readFileSync('evals/baseline.json', 'utf8'));
+        // Features left out with EVAL_FEATURES are not gated.
+        if (only.length) baseline.features = Object.fromEntries(Object.entries(baseline.features).filter(([f]) => only.includes(f)));
         const regressions = compareToBaseline(summary, baseline);
         gateFailed = regressions.length > 0;
         markdown = `${gateMarkdown(regressions, baseline)}\n${markdown}`;
