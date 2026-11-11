@@ -211,6 +211,9 @@ describe('gradeAsk', () => {
         expect(failed(gradeAsk(nf, { answer: "I couldn't find any skiing.", citedDays: [] }, log, DIARY_DAYS))).toEqual([]);
         expect(failed(gradeAsk(nf, { answer: 'You went skiing in Feb.', citedDays: [] }, { ...log, tools: {} }, DIARY_DAYS)))
             .toEqual(['says_not_found', 'searched_before_not_found']);
+        const related = { ...nf, mayCite: ['2026-03-27'] };
+        expect(failed(gradeAsk(related, { answer: 'No entry mentions Sarah. Priya talked about your review [2026-03-27].', citedDays: ['2026-03-27'] }, log, DIARY_DAYS))).toEqual([]);
+        expect(failed(gradeAsk(related, { answer: 'No entry mentions Sarah [2026-03-10].', citedDays: ['2026-03-10'] }, log, DIARY_DAYS))).toEqual(['cites_nothing']);
     });
 
     it('cites only days that exist in the synthetic diary for every expected day', async () => {
