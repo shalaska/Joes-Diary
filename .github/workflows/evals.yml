@@ -18,6 +18,9 @@ on:
         description: 'Runs per case'
         required: false
         default: '1'
+      judge_model:
+        description: 'Judge model (blank = newest stable Pro)'
+        required: false
 
 permissions:
   contents: read
@@ -55,9 +58,21 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
+      # The key is read from Secret Manager, masked, and only exists inside these steps.
+      - name: Check the judge against the hand labels
+        env:
+          EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
+          EVAL_CALIBRATE: '1'
+          EVAL_OUT: ${{ runner.temp }}/eval-results
+        run: |
+          GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
+          echo "::add-mask::$GEMINI_API_KEY"
+          GEMINI_API_KEY="$GEMINI_API_KEY" node evals/run.js
+
       - name: Run the evals
         env:
           EVAL_MODEL: ${{ inputs.model }}
+          EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
           EVAL_REPEATS: ${{ inputs.repeats || '1' }}
           EVAL_OUT: ${{ runner.temp }}/eval-results
         run: |

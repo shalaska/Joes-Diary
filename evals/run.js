@@ -6,14 +6,18 @@
 //   GEMINI_API_KEY=... EVAL_MODEL=gemini-x.y-flash node evals/run.js
 //
 // Options (env): EVAL_MODEL, EVAL_FEATURES (comma list), EVAL_REPEATS (default 1),
-// EVAL_OUT (default eval-results), EVAL_MIN_PASS_RATE (fail the run below this, 0-1).
+// EVAL_OUT (default eval-results), EVAL_MIN_PASS_RATE (fail the run below this, 0-1),
+// EVAL_JUDGE_MODEL (default: newest stable Pro), EVAL_JUDGE=0 (code graders only),
+// EVAL_CALIBRATE=1 (only score the judge against the hand labels in calibration.js).
 // Inputs are synthetic. Nothing here reads or sends diary data.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHandler } from '../gateway/src/handler.js';
 import { createGeminiClient } from '../gateway/src/gemini.js';
+import { CALIBRATION } from './calibration.js';
+import { createJudge, judgeCandidates } from './judge.js';
 import { readPinnedModel } from '../scripts/geminiModel.js';
 import { SUITES } from './suites.js';
-import { summarise, toMarkdown } from './report.js';
+import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
 
 const CONCURRENCY = 4;
 
@@ -30,6 +34,41 @@ const runPool = async (jobs, limit) => {
     return results;
 };
 
+const listModels = async (apiKey) => {
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', { headers: { 'x-goog-api-key': apiKey } });
+    if (!response.ok) return [];
+    return ((await response.json()).models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map(m => m.name.replace(/^models\//, ''));
+};
+
+// Newest stable Pro that actually answers, else the model under test.
+const chooseJudgeModel = async (apiKey, callModel, fallback) => {
+    const candidates = judgeCandidates(await listModels(apiKey));
+    console.log(`Judge candidates: ${candidates.join(', ') || 'none'}`);
+    for (const name of candidates) {
+        try {
+            await callModel({ model: name, prompt: 'Reply with OK.' });
+            return name;
+        } catch (error) {
+            console.log(`Judge candidate ${name} is not callable: ${error.message}`);
+        }
+    }
+    return fallback;
+};
+
+const calibrate = async (judge, judgeModel, outDir) => {
+    const rows = await runPool(CALIBRATION.map(item => async () => {
+        const verdict = await judge(item.feature, item.input, item.output).catch(error => ({ pass: null, scores: {}, reason: `judge error: ${error.message}` }));
+        return { ...item, judged: verdict.pass === null ? 'error' : (verdict.pass ? 'pass' : 'fail'), scores: verdict.scores, reason: verdict.reason };
+    }), CONCURRENCY);
+    const markdown = calibrationMarkdown(judgeModel, rows);
+    mkdirSync(outDir, { recursive: true });
+    writeFileSync(`${outDir}/calibration.json`, JSON.stringify(rows, null, 2));
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown);
+    console.log(markdown);
+};
+
 const main = async () => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
@@ -38,7 +77,16 @@ const main = async () => {
     const only = (process.env.EVAL_FEATURES || '').split(',').map(s => s.trim()).filter(Boolean);
     const outDir = process.env.EVAL_OUT || 'eval-results';
 
-    const callModel = createGeminiClient({ apiKey });
+    const callModel = createGeminiClient({ apiKey, timeoutMs: 60000 });
+    const useJudge = process.env.EVAL_JUDGE !== '0';
+    const judgeModel = process.env.EVAL_JUDGE_MODEL || (useJudge || process.env.EVAL_CALIBRATE === '1' ? await chooseJudgeModel(apiKey, callModel, model) : null);
+    const judge = useJudge ? createJudge({ callModel, model: judgeModel }) : null;
+
+    if (process.env.EVAL_CALIBRATE === '1') {
+        await calibrate(createJudge({ callModel, model: judgeModel }), judgeModel, outDir);
+        return;
+    }
+
     const suites = SUITES.filter(suite => only.length === 0 || only.includes(suite.feature));
     const jobs = [];
     for (const suite of suites) {
@@ -56,12 +104,19 @@ const main = async () => {
                     const checks = logEntry?.outcome === 'ok'
                         ? suite.grade(testCase, output)
                         : [{ name: 'gateway_ok', pass: false, detail: logEntry?.outcome ?? 'no log' }];
+                    let judged = null;
+                    if (judge && logEntry?.outcome === 'ok') {
+                        judged = await judge(suite.feature, suite.input(testCase), output)
+                            .catch(error => ({ error: error.message }));
+                        // A judge failure is reported, but never counted against the model under test.
+                        if (judged && !judged.error) checks.push({ name: 'judge', pass: judged.pass, detail: `${Object.entries(judged.scores).map(([k, v]) => `${k} ${v}`).join(', ')}. ${judged.reason}` });
+                    }
                     return {
                         feature: suite.feature, caseId: testCase.id, run,
                         outcome: logEntry?.outcome, latencyMs: logEntry?.latencyMs,
                         inputTokens: logEntry?.inputTokens, outputTokens: logEntry?.outputTokens,
                         modelVersion: logEntry?.modelVersion, promptVersion: logEntry?.promptVersion,
-                        pass: checks.every(c => c.pass), checks, output,
+                        pass: checks.every(c => c.pass), checks, output, judge: judged,
                     };
                 });
             }
@@ -69,7 +124,7 @@ const main = async () => {
     }
 
     const results = await runPool(jobs, CONCURRENCY);
-    const summary = summarise(results, { model, repeats });
+    const summary = summarise(results, { model, repeats, judgeModel: judge ? judgeModel : null });
     mkdirSync(outDir, { recursive: true });
     writeFileSync(`${outDir}/results.json`, JSON.stringify({ summary, results }, null, 2));
     const markdown = toMarkdown(summary, results);
