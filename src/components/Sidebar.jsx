@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Book, Plus, Trash2, LogOut, User, X, GripVertical, Settings, ListTodo } from 'lucide-react';
+import { weekRangeLabel } from '../utils/weeks';
 import {
     DndContext,
     closestCenter,
@@ -134,7 +135,12 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
     onClose,
     onSettings,
     todos,
-    onViewTodos
+    onViewTodos,
+    historyMode = 'days',
+    onHistoryModeChange,
+    weeks = [],
+    selectedWeek,
+    onSelectWeek,
 }) => {
     // Sort dates based on metadata (if available) or default to date descending
     // We need to maintain a local sorted list for DnD to work smoothly
@@ -256,9 +262,45 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
                         </div>
                     )}
 
-                    <h3 className="px-6 text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">
-                        History
-                    </h3>
+                    <div className="px-6 mb-2 flex items-center justify-between">
+                        <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                            History
+                        </h3>
+                        <div className="flex bg-slate-100 rounded-md p-0.5 text-xs" role="group" aria-label="Group history by">
+                            {['days', 'weeks'].map(mode => (
+                                <button
+                                    key={mode}
+                                    onClick={() => onHistoryModeChange?.(mode)}
+                                    aria-pressed={historyMode === mode}
+                                    className={`px-2 py-0.5 rounded capitalize transition-colors ${historyMode === mode ? 'bg-white text-indigo-700 shadow-sm font-medium' : 'text-slate-500 hover:text-slate-700'}`}
+                                >
+                                    {mode}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                    {historyMode === 'weeks' ? (
+                        <div className="space-y-1 px-3">
+                            {weeks.map(week => {
+                                const isSelected = currentView === 'week' && selectedWeek === week.key;
+                                return (
+                                    <button
+                                        key={week.key}
+                                        onClick={() => {
+                                            onSelectWeek?.(week.key);
+                                            onClose?.();
+                                        }}
+                                        className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-colors flex flex-col gap-0.5 ${isSelected ? 'bg-indigo-50 text-indigo-900' : 'text-slate-600 hover:bg-slate-50'}`}
+                                    >
+                                        <span className={`font-medium ${isSelected ? 'text-indigo-700' : 'text-slate-700'}`}>{weekRangeLabel(week.key)}</span>
+                                        <span className="text-xs opacity-70">
+                                            {week.days.length} {week.days.length === 1 ? 'day' : 'days'} · {week.noteCount} {week.noteCount === 1 ? 'note' : 'notes'}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    ) : (
                     <div className="space-y-1 px-3">
                         <DndContext
                             sensors={sensors}
@@ -294,6 +336,7 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
                             </SortableContext>
                         </DndContext>
                     </div>
+                    )}
                 </div>
 
                 <div className="p-4 border-t border-slate-100 space-y-2">

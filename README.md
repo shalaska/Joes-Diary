@@ -15,8 +15,9 @@ Live at https://joesdiary-d8211.web.app. Sign-up is closed.
   (ICS feed), with a per-calendar switch for whether events may reach an AI model.
   The work calendar is blocked by default.
 - **Gemini features**: a thinking-partner chat on an entry, edit-the-selection,
-  todo extraction, a diary note drafted from a day's calendar, and a "day shape"
-  summary.
+  todo extraction, a diary note drafted from a day's calendar, a "day shape"
+  summary, "Ask my diary" (a read-only agent) and "Analyze my week" (the sidebar can
+  group history by week).
 - **Import and export**: Notion import, Markdown zip export.
 
 ## Architecture

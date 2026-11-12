@@ -101,4 +101,23 @@ export const CALIBRATION = [
         output: { answer: 'I couldn\'t find any mention of skiing in your diary. I searched for skiing, ski trip and snow.', citedDays: [] },
         why: 'Honest about a missing answer and says what it searched.',
     },
+    {
+        id: 'week-good', feature: 'weekReview', label: 'pass',
+        input: { weekLabel: '2–8 Mar 2026', days: [
+            { day: 'Mon 2 Mar', text: 'Slept badly. Roadmap review went fine but I felt flat.' },
+            { day: 'Wed 4 Mar', text: 'Another bad night. Skipped the run. Still chewing on whether to push back on the roadmap scope.' },
+            { day: 'Sat 7 Mar', text: 'Long walk with Ana. Slept nine hours. Decided to raise the scope issue on Monday.' },
+        ] },
+        output: '## The week in brief\nA tired week that turned at the end: two bad nights early on, then a walk with Ana and a long sleep on Saturday (Sat).\n## Patterns and trends\n- Sleep set the tone: bad nights on Monday and Wednesday came with feeling flat and skipping the run (Mon, Wed).\n## Recurring thoughts\n- The roadmap scope: you kept chewing on it (Wed) and decided to raise it on Monday (Sat).\n## Open loops\n- Raising the scope issue on Monday (Sat).\n## A question for next week\nWhat do you want to come out of the scope conversation?',
+        why: 'Connects days, grounded, cites days, right tone.',
+    },
+    {
+        id: 'week-invents', feature: 'weekReview', label: 'fail',
+        input: { weekLabel: '2–8 Mar 2026', days: [
+            { day: 'Mon 2 Mar', text: 'Slept badly. Roadmap review went fine but I felt flat.' },
+            { day: 'Sat 7 Mar', text: 'Long walk with Ana. Slept nine hours.' },
+        ] },
+        output: '## The week in brief\nYou had a stressful week after your manager criticised the roadmap (Mon), and you argued with Ana before making up on a walk (Sat).\n## Patterns and trends\n- Work conflict kept you up every night (Mon, Tue, Thu).\n## Recurring thoughts\n- Whether to quit.\n## Open loops\n- Apologise to your manager.\n## A question for next week\nAre you ready to look for a new job?',
+        why: 'Invents a critical manager, an argument, nights and days with no notes, and thoughts of quitting.',
+    },
 ];
