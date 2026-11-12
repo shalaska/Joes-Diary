@@ -6,7 +6,10 @@ import Auth from './components/Auth';
 import GeminiPanel from './components/GeminiPanel';
 import AskDiaryPanel from './components/AskDiaryPanel';
 import WeekView from './components/WeekView';
-import { groupWeeks, reviewDayFor, weekRangeLabel } from './utils/weeks';
+import GoalsView from './components/GoalsView';
+import DailyAnchors from './components/DailyAnchors';
+import { dayKey, groupWeeks, parseGroupId, weekReviewEntry } from './utils/weeks';
+import { anchorsForDay } from './utils/anchorsGoals';
 import { dayToGroupId } from './services/askDiaryService';
 import CalendarPanel from './components/CalendarPanel';
 import ScheduleTodoModal from './components/ScheduleTodoModal';
@@ -49,6 +52,8 @@ function DiaryApp() {
   const [isLoading, setIsLoading] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [todos, setTodos] = useState([]);
+  const [anchors, setAnchors] = useState([]);
+  const [goals, setGoals] = useState([]);
   const [quickCaptureMessage, setQuickCaptureMessage] = useState('');
   const [quickCaptureFailed, setQuickCaptureFailed] = useState(false);
 
@@ -76,7 +81,7 @@ function DiaryApp() {
   const [globalGemini, setGlobalGemini] = useState({ loading: false, suggestion: null });
   const [globalChatHistory, setGlobalChatHistory] = useState([]);
 
-  const [view, setView] = useState('diary'); // 'diary' | 'week' | 'trash' | 'todos'
+  const [view, setView] = useState('diary'); // 'diary' | 'week' | 'trash' | 'todos' | 'goals'
 
   // Title Renaming State
   const [isRenamingTitle, setIsRenamingTitle] = useState(false);
@@ -257,6 +262,17 @@ function DiaryApp() {
 
         const cloudTodos = await firestoreService.getTodos(currentUser.uid);
         setTodos(cloudTodos);
+
+        try {
+          const [cloudAnchors, cloudGoals] = await Promise.all([
+            firestoreService.listItems(currentUser.uid, 'dailyAnchors'),
+            firestoreService.listItems(currentUser.uid, 'goals'),
+          ]);
+          setAnchors(cloudAnchors);
+          setGoals(cloudGoals);
+        } catch (error) {
+          console.error('Error loading anchors and goals', error);
+        }
 
         // 3. Load User Settings
         const userSettings = await firestoreService.getUserSettings(currentUser.uid);
@@ -640,14 +656,47 @@ function DiaryApp() {
   };
 
   // A week review is saved as an analysis note on the last day of that week that has entries.
-  const handleSaveWeekReview = async (week, review) => {
-    await firestoreService.saveEntry(currentUser.uid, {
-      date: new Date().toISOString(),
-      content: `# Week of ${weekRangeLabel(week.key)}\n\n${review}`,
-      groupId: reviewDayFor(week),
-      type: 'analysis'
-    });
+  // Saves a week's review, replacing the one saved before (same document) if there is one.
+  const handleSaveWeekReview = async (week, review, previous) => {
+    await firestoreService.saveEntry(currentUser.uid, weekReviewEntry(week, review, previous?.date));
     await refreshEntries();
+  };
+
+  // Daily anchors and goals. Each change shows at once and is then written to Firestore.
+  const selectedDayKey = selectedDate ? (parseGroupId(selectedDate) && dayKey(parseGroupId(selectedDate))) : null;
+  const dayAnchors = selectedDayKey ? anchorsForDay(anchors, selectedDayKey) : [];
+
+  const handleAddAnchor = async (title) => {
+    if (!selectedDayKey) return;
+    const anchor = { title, completed: false, date: selectedDayKey, createdAt: new Date().toISOString() };
+    const id = await firestoreService.addItem(currentUser.uid, 'dailyAnchors', anchor);
+    setAnchors(prev => [...prev, { ...anchor, id }]);
+  };
+
+  const handleToggleAnchor = async (id, completed) => {
+    setAnchors(prev => prev.map(a => a.id === id ? { ...a, completed } : a));
+    await firestoreService.updateItem(currentUser.uid, 'dailyAnchors', id, { completed });
+  };
+
+  const handleDeleteAnchor = async (id) => {
+    setAnchors(prev => prev.filter(a => a.id !== id));
+    await firestoreService.deleteItem(currentUser.uid, 'dailyAnchors', id);
+  };
+
+  const handleAddGoal = async (fields) => {
+    const goal = { ...fields, completed: false, createdAt: new Date().toISOString() };
+    const id = await firestoreService.addItem(currentUser.uid, 'goals', goal);
+    setGoals(prev => [...prev, { ...goal, id }]);
+  };
+
+  const handleUpdateGoal = async (id, changes) => {
+    setGoals(prev => prev.map(g => g.id === id ? { ...g, ...changes } : g));
+    await firestoreService.updateItem(currentUser.uid, 'goals', id, changes);
+  };
+
+  const handleDeleteGoal = async (id) => {
+    setGoals(prev => prev.filter(g => g.id !== id));
+    await firestoreService.deleteItem(currentUser.uid, 'goals', id);
   };
 
   const handleSaveGlobalAnalysis = async () => {
@@ -722,6 +771,8 @@ function DiaryApp() {
         currentView={view}
         onViewTrash={() => setView('trash')}
         onViewTodos={() => setView('todos')}
+        onViewGoals={() => setView('goals')}
+        openGoalCount={goals.filter(g => !g.completed).length}
         onLogout={logout}
         userEmail={currentUser.email}
         isOpen={isMobileMenuOpen}
@@ -761,6 +812,22 @@ function DiaryApp() {
                   />
                 </div>
               </div>
+            ) : view === 'goals' ? (
+              <GoalsView
+                goals={goals}
+                anchors={anchors}
+                onAddGoal={handleAddGoal}
+                onUpdateGoal={handleUpdateGoal}
+                onDeleteGoal={handleDeleteGoal}
+                onOpenDay={(day) => {
+                  const groupId = dayToGroupId(day);
+                  if (groupedEntries[groupId]) {
+                    setSelectedDate(groupId);
+                    setView('diary');
+                    setGlobalGemini({ loading: false, suggestion: null });
+                  }
+                }}
+              />
             ) : view === 'week' && selectedWeekData ? (
               <WeekView
                 key={selectedWeekData.key}
@@ -848,6 +915,15 @@ function DiaryApp() {
                       <span className="hidden sm:inline">New Note</span>
                     </button>
                   </div>
+                  {selectedDayKey && (
+                    <DailyAnchors
+                      key={selectedDayKey}
+                      anchors={dayAnchors}
+                      onAdd={handleAddAnchor}
+                      onToggle={handleToggleAnchor}
+                      onDelete={handleDeleteAnchor}
+                    />
+                  )}
                   <div className="space-y-8">
                     {currentDayEntries
                       .filter(e => e.type !== 'analysis')

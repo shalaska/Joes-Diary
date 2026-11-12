@@ -187,5 +187,24 @@ export const firestoreService = {
 
     async deleteTodo(uid, todoId) {
         await deleteDoc(doc(db, 'users', uid, 'todos', todoId));
+    },
+
+    // Daily anchors and goals: plain documents under users/{uid}/dailyAnchors and users/{uid}/goals.
+    async listItems(uid, collectionName) {
+        const snapshot = await getDocs(query(collection(db, 'users', uid, collectionName)));
+        return snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
+    },
+
+    async addItem(uid, collectionName, data) {
+        const ref = await addDoc(collection(db, 'users', uid, collectionName), data);
+        return ref.id;
+    },
+
+    async updateItem(uid, collectionName, id, changes) {
+        await updateDoc(doc(db, 'users', uid, collectionName, id), changes);
+    },
+
+    async deleteItem(uid, collectionName, id) {
+        await deleteDoc(doc(db, 'users', uid, collectionName, id));
     }
 };
