@@ -29,6 +29,9 @@ on:
       bakeoff:
         description: 'Model bake-off instead: "auto" or a comma list of models (judge = pinned model unless set)'
         required: false
+      thinking:
+        description: 'Thinking level for the model under test (blank = model default), e.g. low'
+        required: false
       features:
         description: 'Only these suites, comma list (blank = all). E.g. extractTodos,calendarNote,chat,edit,weekReview'
         required: false
@@ -102,6 +105,7 @@ jobs:
         if: inputs.bakeoff == ''
         env:
           EVAL_FEATURES: ${{ steps.suites.outputs.features || inputs.features }}
+          EVAL_THINKING: ${{ inputs.thinking }}
           EVAL_MODEL: ${{ inputs.model }}
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
           EVAL_REPEATS: ${{ inputs.repeats || '3' }}
@@ -120,6 +124,7 @@ jobs:
         env:
           BAKEOFF: ${{ inputs.bakeoff }}
           EVAL_FEATURES: ${{ inputs.features }}
+          EVAL_THINKING: ${{ inputs.thinking }}
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
           EVAL_REPEATS: ${{ inputs.repeats || '3' }}
           OUT: ${{ runner.temp }}/eval-results

@@ -147,6 +147,22 @@ describe('week review', () => {
 });
 
 describe('createGeminiClient', () => {
+    it('sets a thinking level when asked, and counts thinking tokens as output', async () => {
+        const fetchImpl = vi.fn(async () => ({
+            ok: true,
+            json: async () => ({
+                candidates: [{ content: { parts: [{ text: 'hi' }] }, finishReason: 'STOP' }],
+                usageMetadata: { promptTokenCount: 7, candidatesTokenCount: 2, thoughtsTokenCount: 30 },
+            }),
+        }));
+        const result = await createGeminiClient({ apiKey: 'k', fetchImpl, thinkingLevel: 'low' })({ model: MODEL, prompt: 'p' });
+        expect(JSON.parse(fetchImpl.mock.calls[0][1].body).generationConfig).toEqual({ thinkingConfig: { thinkingLevel: 'low' } });
+        expect(result.usage).toEqual({ inputTokens: 7, outputTokens: 32, thinkingTokens: 30 });
+
+        await createGeminiClient({ apiKey: 'k', fetchImpl })({ model: MODEL, prompt: 'p' });
+        expect(JSON.parse(fetchImpl.mock.calls[1][1].body).generationConfig).toEqual({});
+    });
+
     it('sends the key in a header, asks for JSON when there is a schema, and reads usage', async () => {
         const fetchImpl = vi.fn(async () => ({
             ok: true,
