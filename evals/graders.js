@@ -124,9 +124,11 @@ export const gradeAsk = (testCase, output, logEntry = {}, knownDays = new Set())
     }
     if (testCase.notInDiary) {
         checks.push(check('says_not_found', containsAny(answer, NOT_FOUND), answer.slice(0, 120)));
-        checks.push(check('cites_nothing', cited.length === 0, cited.join(', ')));
+        // It may point to a related entry (mayCite), as long as it says the answer is not there.
+        const stray = cited.filter(d => !(testCase.mayCite || []).includes(d));
+        checks.push(check('cites_nothing', stray.length === 0, stray.join(', ')));
         checks.push(check('searched_before_not_found', (tools.search_entries || 0) >= 1, JSON.stringify(tools)));
     }
-    checks.push(check('within_tool_budget', (logEntry.toolCalls ?? 0) <= 8 && logEntry.outcome !== 'step_limit', `${logEntry.toolCalls} calls, ${logEntry.outcome}`));
+    checks.push(check('within_tool_budget', (logEntry.toolCalls ?? 0) <= 8 && logEntry.outcome === 'ok', `${logEntry.toolCalls} calls, ${logEntry.outcome}`));
     return checks;
 };

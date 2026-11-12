@@ -34,8 +34,10 @@ permissions:
   contents: read
   id-token: write
 
+# One eval run per branch at a time (a PR run and a manual run on the same branch share the
+# Gemini spend cap), newest wins.
 concurrency:
-  group: evals-${{ github.ref }}
+  group: evals-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 env:
@@ -50,6 +52,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -78,12 +82,28 @@ jobs:
           echo "::add-mask::$GEMINI_API_KEY"
           GEMINI_API_KEY="$GEMINI_API_KEY" node evals/run.js
 
+      # The ask agent costs far more tokens than the other features, so a PR runs it only when it
+      # touches the agent, its evals or the shared Gemini client.
+      - name: Pick the suites
+        id: suites
+        if: github.event_name == 'pull_request'
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qE '^(gateway/src/(agent|gemini)\.js|gateway/index\.js|evals/(agent/|cases/ask\.js))'; then
+            echo "features=" >> "$GITHUB_OUTPUT"
+          else
+            echo "features=extractTodos,calendarNote,chat,edit" >> "$GITHUB_OUTPUT"
+            echo "Skipping the ask suite: this PR does not touch the agent."
+          fi
+
       - name: Run the evals
         if: inputs.bakeoff == ''
         env:
+          EVAL_FEATURES: ${{ steps.suites.outputs.features }}
           EVAL_MODEL: ${{ inputs.model }}
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
           EVAL_REPEATS: ${{ inputs.repeats || '3' }}
+          # The ask agent makes several model calls per case, so PRs run each of its cases once.
+          EVAL_AGENT_REPEATS: ${{ github.event_name == 'pull_request' && '1' || '' }}
           EVAL_GATE: ${{ (github.event_name == 'pull_request' || inputs.gate) && '1' || '0' }}
           EVAL_OUT: ${{ runner.temp }}/eval-results
         run: |

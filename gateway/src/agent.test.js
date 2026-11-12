@@ -25,13 +25,22 @@ describe('read tools', () => {
         expect((await tools.search_entries.run({ query: 'maya', to: '2026-04-01' })).matches).toEqual([]);
     });
 
-    it('reads one whole day, joining its entries and stripping markup', async () => {
-        const result = await tools.read_entry.run({ day: '2026-03-02' });
-        expect(result.text).toContain('Dentist at 9');
-        expect(result.text).toContain('long run');
-        expect(result.text).not.toContain('<b>');
-        expect((await tools.read_entry.run({ day: '2026-03-03' })).text).toBeNull();
-        expect((await tools.read_entry.run({ day: 'yesterday' })).error).toBeTruthy();
+    it('reads up to five whole days, joining the entries of each day and stripping markup', async () => {
+        const result = await tools.read_entries.run({ days: ['2026-03-02', '2026-03-03', '2026-04-10'] });
+        expect(result.entries.map(e => e.day)).toEqual(['2026-03-02', '2026-04-10']);
+        expect(result.entries[0].text).toContain('Dentist at 9');
+        expect(result.entries[0].text).toContain('long run');
+        expect(result.entries[0].text).not.toContain('<b>');
+        expect(result.noEntry).toEqual(['2026-03-03']);
+        expect((await tools.read_entries.run({ days: ['yesterday'] })).error).toBeTruthy();
+        expect((await tools.read_entries.run({ days: [] })).error).toBeTruthy();
+        expect((await tools.read_entries.run({ days: ['2026-03-01', '2026-03-02', '2026-03-03', '2026-03-04', '2026-03-05', '2026-03-06'] })).error).toBeTruthy();
+    });
+
+    it('matches any query word, ranking days that match more words first', async () => {
+        const result = await tools.search_entries.run({ query: 'stuck blocked frustrated roadmap' });
+        expect(result.matches.map(m => m.day)).toEqual(['2026-03-02']);
+        expect((await tools.search_entries.run({ query: 'canal maya' })).matches.map(m => m.day)).toEqual(['2026-04-10', '2026-03-02']);
     });
 
     it('lists at most 60 days', async () => {
@@ -94,12 +103,12 @@ describe('runAgent', () => {
 describe('ask handler', () => {
     it('logs metadata only and returns the answer', async () => {
         const logs = [];
-        const script = [reply({ calls: [{ name: 'read_entry', args: { day: '2026-04-10' } }] }), reply({ text: 'Dinner for Maya [2026-04-10].' })];
+        const script = [reply({ calls: [{ name: 'read_entries', args: { days: ['2026-04-10'] } }] }), reply({ text: 'Dinner for Maya [2026-04-10].' })];
         const ask = createAskHandler({ callTools: async () => script.shift(), model: 'm', store, log: (e) => logs.push(e) });
         const result = await ask({ question: 'What did I do for Maya?', today: '2026-11-11' });
         expect(result.output).toEqual({ answer: 'Dinner for Maya [2026-04-10].', citedDays: ['2026-04-10'] });
         expect(logs).toHaveLength(1);
-        expect(logs.at(0)).toMatchObject({ feature: 'ask', outcome: 'ok', toolCalls: 1, tools: { read_entry: 1 } });
+        expect(logs.at(0)).toMatchObject({ feature: 'ask', outcome: 'ok', toolCalls: 1, tools: { read_entries: 1 } });
         expect(JSON.stringify(logs)).not.toMatch(/Maya|dinner/i);
     });
 
