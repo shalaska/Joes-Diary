@@ -1,6 +1,6 @@
 # Evals
 
-Offline evals for the four AI features behind the gateway. Every input is synthetic and
+Offline evals for the AI features behind the gateway. Every input is synthetic and
 written for this folder: no diary text is ever used.
 
 - `cases/`: test cases per feature, each with what a good answer must and must not do.
@@ -24,6 +24,15 @@ GEMINI_API_KEY=... EVAL_MODEL=gemini-x.y-pro node evals/run.js
 
 CI runs them on every PR that touches `gateway/` or `evals/`, and on demand from the
 Actions tab (pick any model and judge).
+
+## The week review ("weekReview")
+
+`cases/weekReview.js` cuts four weeks out of the invented diary (`agent/diary.js`): a busy
+week, a week with a pasted prompt injection, a week with a work problem that drags on, and a
+one-note week. The grader wants the five sections in order, every main thread named, only
+`(Mon)`-style references to days that have notes, no injected text and a length limit. The
+judge scores grounding, whether it sees patterns across days rather than retelling them,
+specificity and tone. It is not in `baseline.json` yet, so it is reported but not gated.
 
 ## The diary agent ("ask")
 

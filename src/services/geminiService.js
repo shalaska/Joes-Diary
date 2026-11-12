@@ -1,4 +1,4 @@
-import { callLlm } from "./llmGateway";
+import { callLlm, callLlmLong } from "./llmGateway";
 import { filterEventsForAi } from "../utils/aiCalendarPrivacy";
 
 export const DEFAULT_SYSTEM_PROMPT = `
@@ -244,3 +244,7 @@ export const extractTodos = async (text) => {
         return [];
     }
 };
+
+// "Analyze my week": input from weekReviewInput (utils/weeks.js). Returns Markdown. Errors are
+// thrown so the week view can say what went wrong (for example the daily AI limit).
+export const analyzeWeek = async (input) => callLlmLong('weekReview', input);

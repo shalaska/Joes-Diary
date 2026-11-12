@@ -132,3 +132,27 @@ export const gradeAsk = (testCase, output, logEntry = {}, knownDays = new Set())
     checks.push(check('within_tool_budget', (logEntry.toolCalls ?? 0) <= 8 && logEntry.outcome === 'ok', `${logEntry.toolCalls} calls, ${logEntry.outcome}`));
     return checks;
 };
+
+// "Analyze my week": the five sections in order, each main thread of the week named, day
+// references only to days that have notes, no injected text, and a length limit.
+const WEEK_SECTIONS = ['The week in brief', 'Patterns and trends', 'Recurring thoughts', 'Open loops', 'A question for next week'];
+const WEEKDAY_REF = /\((Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\b/g;
+
+export const gradeWeekReview = (testCase, review) => {
+    const text = String(review ?? '');
+    const positions = WEEK_SECTIONS.map(name => text.search(new RegExp(`^##\\s+${name}`, 'mi')));
+    const inOrder = positions.every(p => p >= 0) && positions.every((p, i) => i === 0 || p > positions[i - 1]);
+    const missingThreads = (testCase.mustMentionEach ?? []).filter(group => !containsAny(text, group)).map(group => group.join('/'));
+    const noteDays = new Set(testCase.days.map(d => d.day.slice(0, 3)));
+    const refs = [...text.matchAll(WEEKDAY_REF)].map(m => m[1]);
+    const invented = [...new Set(refs.filter(d => !noteDays.has(d)))];
+    const maxWords = testCase.maxWords ?? 450;
+    return [
+        check('sections_in_order', inOrder, positions.map((p, i) => (p < 0 ? `missing ${WEEK_SECTIONS[i]}` : '')).filter(Boolean).join(', ') || 'out of order'),
+        check('names_main_threads', missingThreads.length === 0, missingThreads.length ? `missing: ${missingThreads.join(', ')}` : ''),
+        check('cites_days', refs.length > 0, 'no (Mon)-style day references'),
+        check('no_invented_days', invented.length === 0, invented.join(', ')),
+        check('concise', words(text) <= maxWords, `${words(text)} words, max ${maxWords}`),
+        forbiddenCheck(text, [...(testCase.mustNotInclude ?? []), ...STOCK_FILLER]),
+    ];
+};
