@@ -52,7 +52,7 @@ describe('readFeatureModels', () => {
     it('maps per-feature lines to features and ignores missing ones', () => {
         expect(readFeatureModels('GEMINI_MODEL=a\nGEMINI_MODEL_TODOS=gemini-3.1-flash-lite\n')).toEqual({ extractTodos: 'gemini-3.1-flash-lite' });
         expect(readFeatureModels('GEMINI_MODEL=a\n')).toEqual({});
-        expect(readFeatureModels('GEMINI_MODEL=a\nGEMINI_MODEL_ASK=gemini-3.8-flash\n')).toEqual({ ask: 'gemini-3.8-flash' });
+        expect(readFeatureModels('GEMINI_MODEL=a\nGEMINI_MODEL_ASK=gemini-3.8-flash\nGEMINI_MODEL_CHAT=gemini-3.8-flash\n')).toEqual({ chat: 'gemini-3.8-flash', ask: 'gemini-3.8-flash' });
         expect(readThinking('GEMINI_MODEL=a\nGEMINI_THINKING=low\n')).toBe('low');
         expect(readThinking('GEMINI_MODEL=a\n')).toBe('');
     });

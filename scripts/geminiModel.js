@@ -35,7 +35,7 @@ export const readPinnedModel = (envText) => {
 };
 
 // Per-feature overrides from the same file, e.g. GEMINI_MODEL_TODOS -> { extractTodos: ... }.
-const FEATURE_KEYS = { TODOS: 'extractTodos', ASK: 'ask' };
+const FEATURE_KEYS = { TODOS: 'extractTodos', CHAT: 'chat', ASK: 'ask' };
 export const readFeatureModels = (envText) => Object.fromEntries(
     Object.entries(FEATURE_KEYS)
         .map(([suffix, feature]) => [feature, new RegExp(`^GEMINI_MODEL_${suffix}=(.+)$`, 'm').exec(envText)?.[1].trim()])

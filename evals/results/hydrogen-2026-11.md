@@ -25,3 +25,21 @@
 - Hydrogen on high padded the thin-week review (judge tone 2) and missed one todo priority.
 - Cost at list prices (Hydrogen $1.50 / $7.50 per million in / out, 3.8 Flash $0.75 / $3.75):
   about $0.17 vs $0.11 for these 41 runs, so Hydrogen on low costs about 1.6x per answer.
+
+## PR run (3 repeats, ask included), and what changed
+
+The first PR run (judge defaulted to the new pinned model, Hydrogen) failed the gate on chat:
+cases passing 79% vs a 90% baseline. Two causes were real and judge-independent or repeatable:
+
+- The chat overlap case said "double-booked" in 3 of 3 runs (3.8 Flash: occasional).
+- `unstructured-gets-structure` got two replies that suggested adding a heading instead of
+  engaging with the plan (judge answers_the_point 2).
+
+Everything else held up: ask 100% (21/21), todos, calendar note and edit 100%, week review 92%.
+
+Changes after that run:
+
+- **Chat stays on `gemini-3.8-flash`** (`GEMINI_MODEL_CHAT`), the thinking-partner feature where
+  Hydrogen did worse. Calendar note, edit, week review and Ask move to Hydrogen.
+- **The eval judge is fixed at `gemini-3.8-flash`** in the workflow, so judge scores stay
+  comparable to `evals/baseline.json` when the model under test changes.

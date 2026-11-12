@@ -25,6 +25,11 @@ const GEMINI_MODEL_TODOS = defineString('GEMINI_MODEL_TODOS', {
     description: 'Optional exact model for todo extraction. Blank = GEMINI_MODEL.',
 });
 
+const GEMINI_MODEL_CHAT = defineString('GEMINI_MODEL_CHAT', {
+    default: '',
+    description: 'Optional exact model for the thinking-partner chat. Blank = GEMINI_MODEL.',
+});
+
 const GEMINI_MODEL_ASK = defineString('GEMINI_MODEL_ASK', {
     default: '',
     description: 'Optional exact model for "Ask my diary" (the agent). Blank = GEMINI_MODEL.',
@@ -92,7 +97,7 @@ export const llm = onCall({
 
     const handle = createHandler({
         model: GEMINI_MODEL.value(),
-        featureModels: { extractTodos: GEMINI_MODEL_TODOS.value() },
+        featureModels: { extractTodos: GEMINI_MODEL_TODOS.value(), chat: GEMINI_MODEL_CHAT.value() },
         // 55s: a week review writes a long answer; the browser waits up to 120s for it.
         callModel: createGeminiClient({ apiKey: GEMINI_API_KEY.value(), timeoutMs: 55000, thinkingLevel: thinkingFor }),
         // Structured log line: metadata only, never prompts, inputs or outputs.
