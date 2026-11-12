@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Book, Plus, Trash2, LogOut, User, X, GripVertical, Settings, ListTodo, Target } from 'lucide-react';
 import { weekRangeLabel } from '../utils/weeks';
+import { dayPreview, noteCount } from '../utils/notePreview';
 import {
     DndContext,
     closestCenter,
@@ -47,9 +48,9 @@ const SortableItem = ({ id, dateStr, dayMetadata, isSelected, onSelect, onDelete
         setIsRenaming(false);
     };
 
-    const displayTitle = dayMetadata?.customTitle || new Date(dateStr).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    const preview = entriesForDay[0]?.content || "No content...";
-    const count = entriesForDay.length;
+    const displayTitle = dayMetadata?.customTitle || new Date(dateStr).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+    const preview = dayPreview(entriesForDay) || 'Empty';
+    const count = noteCount(entriesForDay);
 
     return (
         <div
@@ -242,48 +243,34 @@ const Sidebar = ({ groupedEntries, dayMetadata, onUpdateDayMetadata, selectedDat
                 </div>
 
                 <div className="flex-1 overflow-y-auto py-4">
-                    {/* Todos Button relative to History */}
-                    {todos && todos.length > 0 && (
-                        <div className="px-3 mb-4">
+                    {/* Todos and Goals: slim links above the history */}
+                    <nav className="px-3 mb-4 space-y-1" aria-label="Lists">
+                        {[
+                            { view: 'todos', label: 'Todos', icon: <ListTodo size={18} className="text-indigo-500" />, count: (todos || []).filter(t => !t.completed).length, onClick: onViewTodos },
+                            { view: 'goals', label: 'Goals', icon: <Target size={18} className="text-indigo-500" />, count: openGoalCount, onClick: onViewGoals },
+                        ].filter(link => link.onClick).map(({ view, label, icon, count, onClick }) => (
                             <button
+                                key={view}
                                 onClick={() => {
-                                    onViewTodos?.();
+                                    onClick();
                                     onClose?.();
                                 }}
-                                className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-xl border text-base shadow-sm transition-all ${currentView === 'todos'
-                                    ? 'bg-indigo-100/80 border-indigo-200 text-indigo-800 font-semibold'
-                                    : 'bg-indigo-50/60 border-indigo-100 text-slate-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-800'
+                                aria-current={currentView === view ? 'page' : undefined}
+                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${currentView === view
+                                    ? 'bg-indigo-50 text-indigo-800 font-semibold'
+                                    : 'text-slate-700 hover:bg-slate-50 hover:text-slate-900'
                                     }`}
                             >
-                                <ListTodo size={21} className="text-indigo-500" />
-                                <span className="font-medium">Todos</span>
-                                <span className="ml-auto min-w-8 rounded-full border border-indigo-100 bg-white/80 px-2.5 py-1 text-center text-sm text-indigo-700">
-                                    {todos.filter(t => !t.completed).length}
-                                </span>
+                                {icon}
+                                <span className="font-medium">{label}</span>
+                                {count > 0 && (
+                                    <span className="ml-auto min-w-6 rounded-full bg-indigo-100 px-2 py-0.5 text-center text-xs font-medium text-indigo-700">
+                                        {count}
+                                    </span>
+                                )}
                             </button>
-                        </div>
-                    )}
-
-                    {onViewGoals && (
-                        <div className="px-3 mb-4">
-                            <button
-                                onClick={() => {
-                                    onViewGoals();
-                                    onClose?.();
-                                }}
-                                className={`w-full flex items-center gap-3.5 px-4 py-3.5 rounded-xl border text-base shadow-sm transition-all ${currentView === 'goals'
-                                    ? 'bg-indigo-100/80 border-indigo-200 text-indigo-800 font-semibold'
-                                    : 'bg-indigo-50/60 border-indigo-100 text-slate-700 hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-800'
-                                    }`}
-                            >
-                                <Target size={21} className="text-indigo-500" />
-                                <span className="font-medium">Goals</span>
-                                <span className="ml-auto min-w-8 rounded-full border border-indigo-100 bg-white/80 px-2.5 py-1 text-center text-sm text-indigo-700">
-                                    {openGoalCount}
-                                </span>
-                            </button>
-                        </div>
-                    )}
+                        ))}
+                    </nav>
 
                     <div className="px-6 mb-2 flex items-center justify-between">
                         <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
