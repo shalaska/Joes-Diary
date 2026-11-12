@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupWeeks, mondayOf, reviewDayFor, weekRangeLabel, weekReviewInput } from './weeks';
+import { groupWeeks, mondayOf, reviewDayFor, savedWeekReview, weekRangeLabel, weekReviewEntry, weekReviewInput } from './weeks';
 
 const entry = (date, content, extra = {}) => ({ date, content, ...extra });
 
@@ -57,5 +57,26 @@ describe('weeks', () => {
         expect(total).toBeLessThanOrEqual(90000);
         expect(input.days[1].text).toHaveLength(30000);
         expect(input.days[0].text.endsWith('…')).toBe(true);
+    });
+
+    it('saves a review as an analysis on the last day, and finds it again', () => {
+        const week = groupWeeks(GROUPED)[1];
+        const entry = weekReviewEntry(week, '## The week in brief\nGood week.', '2026-11-15T22:00:00.000Z');
+        expect(entry).toEqual({
+            date: '2026-11-15T22:00:00.000Z',
+            content: '# Week of 9–15 Nov 2026\n\n## The week in brief\nGood week.',
+            groupId: 'Sun Nov 15 2026',
+            type: 'analysis',
+            weekKey: '2026-11-09',
+        });
+        expect(savedWeekReview(week, GROUPED)).toBeNull();
+
+        const older = { ...entry, date: '2026-11-15T20:00:00.000Z', weekKey: undefined, content: '# Week of 9–15 Nov 2026\n\nOld review' };
+        const withOld = { ...GROUPED, 'Sun Nov 15 2026': [...GROUPED['Sun Nov 15 2026'], older] };
+        expect(savedWeekReview(week, withOld)).toEqual({ entry: older, review: 'Old review' });
+
+        const withBoth = { ...GROUPED, 'Sun Nov 15 2026': [...withOld['Sun Nov 15 2026'], entry] };
+        expect(savedWeekReview(week, withBoth).review).toBe('## The week in brief\nGood week.');
+        expect(savedWeekReview(groupWeeks(GROUPED)[0], withBoth)).toBeNull();
     });
 });

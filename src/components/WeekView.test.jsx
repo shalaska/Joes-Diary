@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { renderToString } from 'react-dom/server';
 import WeekView from './WeekView';
 import Sidebar from './Sidebar';
-import { groupWeeks } from '../utils/weeks';
+import { groupWeeks, weekReviewEntry } from '../utils/weeks';
 
 // React marks the joins between text parts with empty comments.
 const render = (element) => renderToString(element).replace(/<!-- -->/g, '');
@@ -25,6 +25,19 @@ describe('WeekView', () => {
         expect(html).toContain('Monday 9 November');
         expect(html).toContain('Wednesday note');
         expect(html).not.toContain('Gemini Analysis');
+    });
+
+    it('shows the saved review when the week is reopened, instead of the analyze button', () => {
+        const week = groupWeeks(grouped)[0];
+        const withReview = {
+            ...grouped,
+            'Wed Nov 11 2026': [...grouped['Wed Nov 11 2026'], weekReviewEntry(week, '## The week in brief\nA steady week.', '2026-11-11T22:00:00.000Z')],
+        };
+        const html = render(<WeekView week={week} groupedEntries={withReview} dayMetadata={{}} onOpenDay={() => {}} analyzeWeek={async () => ''} onSaveReview={async () => {}} />);
+        expect(html).toContain('A steady week.');
+        expect(html).toContain('Saved to Wednesday 11 November');
+        expect(html).toContain('Analyze again');
+        expect(html).not.toContain('Analyze my week');
     });
 });
 

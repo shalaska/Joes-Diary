@@ -9,7 +9,7 @@ export const parseGroupId = (groupId) => {
     return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const dayKey = (date) => [
+export const dayKey = (date) => [
     date.getFullYear(),
     String(date.getMonth() + 1).padStart(2, '0'),
     String(date.getDate()).padStart(2, '0'),
@@ -94,3 +94,27 @@ export const weekReviewInput = (week, groupedEntries) => {
 
 // Where a saved review goes: the latest day of the week that has entries.
 export const reviewDayFor = (week) => week.days[week.days.length - 1];
+
+const reviewHeading = (week) => `# Week of ${weekRangeLabel(week.key)}`;
+
+// The analysis entry that stores a week's review.
+export const weekReviewEntry = (week, review, date = new Date().toISOString()) => ({
+    date,
+    content: `${reviewHeading(week)}\n\n${review}`,
+    groupId: reviewDayFor(week),
+    type: 'analysis',
+    weekKey: week.key,
+});
+
+// The newest saved review of this week, if any: { entry, review } with the heading taken off.
+// Reviews saved before weekKey existed are found by their "# Week of ..." heading.
+export const savedWeekReview = (week, groupedEntries) => {
+    const heading = reviewHeading(week);
+    const saved = week.days
+        .flatMap(groupId => groupedEntries[groupId] || [])
+        .filter(e => e.type === 'analysis'
+            && (e.weekKey === week.key || (!e.weekKey && String(e.content || '').startsWith(heading))))
+        .sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    if (!saved) return null;
+    return { entry: saved, review: String(saved.content).slice(heading.length).trim() };
+};

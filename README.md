@@ -17,7 +17,9 @@ Live at https://joesdiary-d8211.web.app. Sign-up is closed.
 - **Gemini features**: a thinking-partner chat on an entry, edit-the-selection,
   todo extraction, a diary note drafted from a day's calendar, a "day shape"
   summary, "Ask my diary" (a read-only agent) and "Analyze my week" (the sidebar can
-  group history by week).
+  group history by week; a week's review saves itself to the week's last day).
+- **Daily anchors** (up to three things that would make a day count, at the top of
+  each day) and **Goals** grouped by timeframe, with the last two weeks of anchors.
 - **Import and export**: Notion import, Markdown zip export.
 
 ## Architecture

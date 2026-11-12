@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { CalendarDays, LoaderCircle, Save, Sparkles, X } from 'lucide-react';
+import { CalendarDays, Check, LoaderCircle, Sparkles } from 'lucide-react';
 import SimpleMarkdownRenderer from './SimpleMarkdownRenderer';
-import { parseGroupId, weekRangeLabel, weekReviewInput } from '../utils/weeks';
+import { parseGroupId, savedWeekReview, weekRangeLabel, weekReviewInput } from '../utils/weeks';
 
 const errorMessage = (error) => {
     if (error?.code === 'functions/resource-exhausted') return 'You have reached today\'s limit of AI calls.';
@@ -13,36 +13,38 @@ const dayTitle = (groupId, dayMetadata) => dayMetadata?.[groupId]?.customTitle
     || (parseGroupId(groupId) || new Date(groupId)).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
 
 // One week of the diary: every note from Monday to Sunday, read-only, with "Analyze my week".
-// Days open in the normal day view for editing.
+// A review saves itself to the diary as soon as it arrives, and shows again when the week is reopened.
+// Analyzing again replaces the saved review. Days open in the normal day view for editing.
 const WeekView = ({ week, groupedEntries, dayMetadata, onOpenDay, analyzeWeek, onSaveReview }) => {
-    const [review, setReview] = useState(null);
+    const saved = savedWeekReview(week, groupedEntries);
+    const [review, setReview] = useState(saved?.review || null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [saved, setSaved] = useState(false);
+    const [saveState, setSaveState] = useState(saved ? 'saved' : 'idle'); // idle | saving | saved | failed
+
+    const save = async (text) => {
+        setSaveState('saving');
+        try {
+            await onSaveReview(week, text, saved?.entry || null);
+            setSaveState('saved');
+        } catch {
+            setSaveState('failed');
+        }
+    };
 
     const analyze = async () => {
         if (loading) return;
         setLoading(true);
         setError('');
-        setReview(null);
-        setSaved(false);
         try {
-            setReview(await analyzeWeek(weekReviewInput(week, groupedEntries)));
+            const text = await analyzeWeek(weekReviewInput(week, groupedEntries));
+            setReview(text);
+            setLoading(false);
+            await save(text);
         } catch (err) {
             setError(errorMessage(err));
         } finally {
             setLoading(false);
-        }
-    };
-
-    const save = async () => {
-        setSaving(true);
-        try {
-            await onSaveReview(week, review);
-            setSaved(true);
-        } finally {
-            setSaving(false);
         }
     };
 
@@ -73,30 +75,41 @@ const WeekView = ({ week, groupedEntries, dayMetadata, onOpenDay, analyzeWeek, o
                     </button>
                 )}
                 {loading && (
-                    <div className="flex items-center gap-2 text-indigo-700 text-sm bg-indigo-50 border border-indigo-100 rounded-xl p-4">
+                    <div className="flex items-center gap-2 text-indigo-700 text-sm bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-3">
                         <LoaderCircle size={16} className="animate-spin" />
                         <span>Reading your week…</span>
                     </div>
                 )}
                 {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
-                {review && (
-                    <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5 relative">
-                        <button onClick={() => setReview(null)} className="absolute top-3 right-3 text-indigo-400 hover:text-indigo-700" aria-label="Close review">
-                            <X size={18} />
-                        </button>
-                        <div className="text-slate-800 text-sm leading-relaxed pr-6">
+                {review && !loading && (
+                    <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5">
+                        <div className="text-slate-800 text-sm leading-relaxed">
                             <SimpleMarkdownRenderer content={review} />
                         </div>
-                        <div className="flex gap-2 mt-4">
+                        <div className="flex flex-wrap items-center gap-3 mt-4 text-sm">
+                            {saveState === 'saving' && (
+                                <span className="flex items-center gap-1.5 text-indigo-700"><LoaderCircle size={14} className="animate-spin" />Saving…</span>
+                            )}
+                            {saveState === 'saved' && (
+                                <span className="flex items-center gap-1.5 text-emerald-700">
+                                    <Check size={14} />
+                                    Saved to {dayTitle(saved?.entry?.groupId || week.days[week.days.length - 1], dayMetadata)}
+                                </span>
+                            )}
+                            {saveState === 'failed' && (
+                                <>
+                                    <span className="text-red-700">This review couldn't be saved.</span>
+                                    <button onClick={() => save(review)} className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white font-medium hover:bg-indigo-700">
+                                        Try saving again
+                                    </button>
+                                </>
+                            )}
                             <button
-                                onClick={save}
-                                disabled={saving || saved}
-                                className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-60"
+                                onClick={analyze}
+                                disabled={saveState === 'saving'}
+                                className="ml-auto px-4 py-2 rounded-lg text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+                                title="Writes a new review and replaces the saved one"
                             >
-                                <Save size={16} />
-                                <span>{saved ? 'Saved to the last day of the week' : 'Save to diary'}</span>
-                            </button>
-                            <button onClick={analyze} className="px-4 py-2 rounded-lg text-sm text-indigo-700 hover:bg-indigo-100">
                                 Analyze again
                             </button>
                         </div>
