@@ -900,7 +900,12 @@ function DiaryApp() {
                           }}
                           title="Click to rename"
                         >
-                          {dayMetadata[selectedDate]?.customTitle || new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+                          {dayMetadata[selectedDate]?.customTitle || (
+                            <>
+                              <span className="hidden sm:inline">{new Date(selectedDate).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
+                              <span className="sm:hidden">{new Date(selectedDate).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                            </>
+                          )}
                           <span className="opacity-0 group-hover:opacity-100 text-slate-400 text-sm font-normal">
                             (Rename)
                           </span>

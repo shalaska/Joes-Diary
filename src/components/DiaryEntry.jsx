@@ -5,7 +5,7 @@ import GeminiPanel from './GeminiPanel';
 import FloatingGeminiMenu from './FloatingGeminiMenu';
 import SimpleMarkdownRenderer from './SimpleMarkdownRenderer';
 
-const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, systemPrompt, editPrompt, onAddTodos, calendarContext }) => {
+const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, isAnalysis = false, systemPrompt, editPrompt, onAddTodos, calendarContext }) => {
     const [content, setContent] = useState(initialContent || '');
     const [isSaving, setIsSaving] = useState(false);
     const [geminiState, setGeminiState] = useState({ loading: false, suggestion: null });
@@ -361,42 +361,54 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
     return (
         <div
             ref={containerRef}
-            className={`w-full max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-100 p-8 mb-6 transition-all hover:shadow-md group relative ${isEditing ? 'ring-2 ring-indigo-50 border-indigo-100' : ''}`}
+            className={`w-full max-w-3xl mx-auto rounded-2xl shadow-sm border p-5 sm:p-8 mb-6 transition-all hover:shadow-md group relative ${isAnalysis ? 'bg-indigo-50/40 border-indigo-100' : 'bg-white border-slate-100'} ${isEditing ? 'ring-2 ring-indigo-50 border-indigo-100' : ''}`}
         >
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex justify-between items-center gap-2 mb-4">
                 {showDateHeader ? (
                     <h2 className="text-2xl font-semibold text-slate-800">
-                        {new Date(date).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                        {new Date(date).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
                     </h2>
                 ) : (
-                    <div className="text-sm font-medium text-slate-400">
-                        {new Date(date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                    <div className="flex items-center gap-2 text-sm font-medium text-slate-400 whitespace-nowrap">
+                        {isAnalysis && (
+                            <span className="flex items-center gap-1 text-indigo-600 bg-indigo-100/70 px-2 py-0.5 rounded-full text-xs">
+                                <Sparkles size={12} />
+                                Saved analysis
+                            </span>
+                        )}
+                        <span>{new Date(date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
                     </div>
                 )}
-                <div className="flex items-center gap-3">
-                    <button
-                        onClick={handleAskGemini}
-                        className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
-                        title="Ask Gemini"
-                    >
-                        <Sparkles size={14} />
-                        <span>Ask Gemini</span>
-                    </button>
-                    <button
-                        onClick={handleExtractTodos}
-                        className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-full text-sm font-medium transition-colors"
-                        title="Create Todos"
-                    >
-                        <ListTodo size={14} />
-                        <span>Create Todos</span>
-                    </button>
-                    <div className="flex items-center text-sm text-slate-400 w-24 justify-end gap-3">
+                <div className="flex items-center gap-1.5 sm:gap-3">
+                    {!isAnalysis && (
+                        <>
+                            <button
+                                onClick={handleAskGemini}
+                                className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 p-2 sm:px-3 sm:py-1.5 rounded-full text-sm font-medium transition-colors"
+                                title="Ask Gemini"
+                                aria-label="Ask Gemini"
+                            >
+                                <Sparkles size={14} />
+                                <span className="hidden sm:inline">Ask Gemini</span>
+                            </button>
+                            <button
+                                onClick={handleExtractTodos}
+                                className="flex items-center gap-1.5 text-indigo-600 hover:text-indigo-700 bg-indigo-50 hover:bg-indigo-100 p-2 sm:px-3 sm:py-1.5 rounded-full text-sm font-medium transition-colors"
+                                title="Create Todos"
+                                aria-label="Create Todos"
+                            >
+                                <ListTodo size={14} />
+                                <span className="hidden sm:inline">Create Todos</span>
+                            </button>
+                        </>
+                    )}
+                    <div className="flex items-center text-sm text-slate-400 sm:w-24 justify-end gap-2 sm:gap-3">
                         {isSaving ? (
                             <span className="flex items-center gap-1 animate-pulse">
-                                <Save size={14} /> Saving
+                                <Save size={14} /> <span className="hidden sm:inline">Saving</span>
                             </span>
                         ) : (
-                            <span>Saved</span>
+                            <span className="hidden sm:inline">Saved</span>
                         )}
                         <button
                             onClick={() => onDelete(date)}
@@ -427,7 +439,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
             ) : (
                 <div
                     onClick={() => setIsEditing(true)}
-                    className="min-h-[150px] cursor-text"
+                    className={`${content ? 'min-h-[3rem]' : 'min-h-[150px]'} cursor-text`}
                 >
                     {content ? (
                         <SimpleMarkdownRenderer content={content} />
