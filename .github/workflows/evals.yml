@@ -29,6 +29,12 @@ on:
       bakeoff:
         description: 'Model bake-off instead: "auto" or a comma list of models (judge = pinned model unless set)'
         required: false
+      thinking:
+        description: 'Thinking level for the model under test (blank = model default), e.g. low'
+        required: false
+      features:
+        description: 'Only these suites, comma list (blank = all). E.g. extractTodos,calendarNote,chat,edit,weekReview'
+        required: false
 
 permissions:
   contents: read
@@ -42,6 +48,9 @@ concurrency:
 
 env:
   PROJECT_ID: joesdiary-d8211
+  # The judge stays fixed when the model under test changes, so judge scores stay comparable
+  # to evals/baseline.json (which was judged by this model). Change both together.
+  DEFAULT_JUDGE_MODEL: gemini-3.8-flash
   WORKLOAD_IDENTITY_PROVIDER: projects/837714540398/locations/global/workloadIdentityPools/github/providers/joes-diary
   SERVICE_ACCOUNT: github-deploy@joesdiary-d8211.iam.gserviceaccount.com
 
@@ -74,7 +83,7 @@ jobs:
       - name: Check the judge against the hand labels
         if: inputs.bakeoff == ''
         env:
-          EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
+          EVAL_JUDGE_MODEL: ${{ inputs.judge_model || env.DEFAULT_JUDGE_MODEL }}
           EVAL_CALIBRATE: '1'
           EVAL_OUT: ${{ runner.temp }}/eval-results
         run: |
@@ -98,9 +107,10 @@ jobs:
       - name: Run the evals
         if: inputs.bakeoff == ''
         env:
-          EVAL_FEATURES: ${{ steps.suites.outputs.features }}
+          EVAL_FEATURES: ${{ steps.suites.outputs.features || inputs.features }}
+          EVAL_THINKING: ${{ inputs.thinking }}
           EVAL_MODEL: ${{ inputs.model }}
-          EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
+          EVAL_JUDGE_MODEL: ${{ inputs.judge_model || env.DEFAULT_JUDGE_MODEL }}
           EVAL_REPEATS: ${{ inputs.repeats || '3' }}
           # The ask agent makes several model calls per case, so PRs run each of its cases once.
           EVAL_AGENT_REPEATS: ${{ github.event_name == 'pull_request' && '1' || '' }}
@@ -116,7 +126,9 @@ jobs:
         if: inputs.bakeoff != ''
         env:
           BAKEOFF: ${{ inputs.bakeoff }}
-          EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
+          EVAL_FEATURES: ${{ inputs.features }}
+          EVAL_THINKING: ${{ inputs.thinking }}
+          EVAL_JUDGE_MODEL: ${{ inputs.judge_model || env.DEFAULT_JUDGE_MODEL }}
           EVAL_REPEATS: ${{ inputs.repeats || '3' }}
           OUT: ${{ runner.temp }}/eval-results
         run: |

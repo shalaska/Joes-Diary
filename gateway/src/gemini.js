@@ -43,7 +43,11 @@ const generate = async ({ apiKey, fetchImpl, timeoutMs, model, body }) => {
         finishReason: candidate?.finishReason || null,
         usage: {
             inputTokens: json.usageMetadata?.promptTokenCount ?? null,
-            outputTokens: json.usageMetadata?.candidatesTokenCount ?? null,
+            // Thinking tokens are billed as output, so they count here (they are not in candidatesTokenCount).
+            outputTokens: json.usageMetadata?.candidatesTokenCount == null && json.usageMetadata?.thoughtsTokenCount == null
+                ? null
+                : (json.usageMetadata?.candidatesTokenCount ?? 0) + (json.usageMetadata?.thoughtsTokenCount ?? 0),
+            thinkingTokens: json.usageMetadata?.thoughtsTokenCount ?? null,
         },
         modelVersion: json.modelVersion || model,
     };
@@ -51,11 +55,20 @@ const generate = async ({ apiKey, fetchImpl, timeoutMs, model, body }) => {
 
 const textOf = (content) => (content.parts || []).map(part => part.text || '').join('');
 
+// thinkingLevel ('low', 'medium', 'high'...) caps how much a thinking model reasons before it
+// answers; left out, the model's own default applies. It may be a function of the model name,
+// so a level meant for one model is not sent to another (e.g. a Flash-Lite override).
+const thinkingConfigFor = (thinkingLevel, model) => {
+    const level = typeof thinkingLevel === 'function' ? thinkingLevel(model) : thinkingLevel;
+    return level ? { thinkingConfig: { thinkingLevel: level } } : {};
+};
+
 // One prompt in, one answer out (optionally JSON with a schema). Used by the single-shot features.
-export const createGeminiClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 30000 }) => async ({ model, prompt, schema }) => {
-    const generationConfig = schema
-        ? { responseMimeType: 'application/json', responseSchema: schema }
-        : {};
+export const createGeminiClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 30000, thinkingLevel = '' }) => async ({ model, prompt, schema }) => {
+    const generationConfig = {
+        ...(schema ? { responseMimeType: 'application/json', responseSchema: schema } : {}),
+        ...thinkingConfigFor(thinkingLevel, model),
+    };
     const result = await generate({
         apiKey, fetchImpl, timeoutMs, model,
         body: { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig },
@@ -65,13 +78,14 @@ export const createGeminiClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 3000
 
 // One turn of a tool-using conversation, for the agent. Returns the model's content as sent,
 // so the caller can append it to the history unchanged (Gemini 3 needs its thought signatures back).
-export const createGeminiToolClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 30000 }) => async ({ model, system, contents, functionDeclarations }) => {
+export const createGeminiToolClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 30000, thinkingLevel = '' }) => async ({ model, system, contents, functionDeclarations }) => {
     const result = await generate({
         apiKey, fetchImpl, timeoutMs, model,
         body: {
             systemInstruction: { parts: [{ text: system }] },
             contents,
             ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
+            ...(thinkingConfigFor(thinkingLevel, model).thinkingConfig ? { generationConfig: thinkingConfigFor(thinkingLevel, model) } : {}),
         },
     });
     const calls = (result.content.parts || []).filter(part => part.functionCall).map(part => part.functionCall);

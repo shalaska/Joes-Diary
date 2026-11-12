@@ -5,7 +5,7 @@
 //   GEMINI_API_KEY=... node evals/run.js                 # the pinned model
 //   GEMINI_API_KEY=... EVAL_MODEL=gemini-x.y-flash node evals/run.js
 //
-// Options (env): EVAL_MODEL, EVAL_FEATURES (comma list), EVAL_REPEATS (default 1),
+// Options (env): EVAL_MODEL, EVAL_THINKING (low|medium|high), EVAL_FEATURES (comma list), EVAL_REPEATS (default 1),
 // EVAL_AGENT_REPEATS (runs per agent case, default EVAL_REPEATS: the agent costs the most),
 // EVAL_OUT (default eval-results), EVAL_MIN_PASS_RATE (fail the run below this, 0-1),
 // EVAL_JUDGE_MODEL (default: newest stable Pro), EVAL_JUDGE=0 (code graders only),
@@ -18,7 +18,7 @@ import { createHandler } from '../gateway/src/handler.js';
 import { createGeminiClient, createGeminiToolClient } from '../gateway/src/gemini.js';
 import { CALIBRATION } from './calibration.js';
 import { createJudge, judgeCandidates } from './judge.js';
-import { readFeatureModels, readPinnedModel } from '../scripts/geminiModel.js';
+import { readFeatureModels, readPinnedModel, readThinking } from '../scripts/geminiModel.js';
 import { SUITES } from './suites.js';
 import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
 import { compareToBaseline, gateMarkdown, toBaseline } from './gate.js';
@@ -81,8 +81,14 @@ const main = async () => {
     const only = (process.env.EVAL_FEATURES || '').split(',').map(s => s.trim()).filter(Boolean);
     const outDir = process.env.EVAL_OUT || 'eval-results';
 
+    // The thinking level applies to the model under test only, as live (GEMINI_THINKING goes with the
+    // pinned model, not with per-feature overrides). EVAL_THINKING overrides it; the judge keeps its default.
+    const level = process.env.EVAL_THINKING || (process.env.EVAL_MODEL ? '' : readThinking(envText));
+    if (level) console.log(`Thinking level for ${model}: ${level}`);
+    const thinkingLevel = (m) => (m === model ? level : '');
     const callModel = createGeminiClient({ apiKey, timeoutMs: 60000 });
-    const callTools = createGeminiToolClient({ apiKey, timeoutMs: 60000 });
+    const callFeature = level ? createGeminiClient({ apiKey, timeoutMs: 60000, thinkingLevel }) : callModel;
+    const callTools = createGeminiToolClient({ apiKey, timeoutMs: 60000, thinkingLevel });
     const useJudge = process.env.EVAL_JUDGE !== '0';
     const judgeModel = process.env.EVAL_JUDGE_MODEL || (useJudge || process.env.EVAL_CALIBRATE === '1' ? await chooseJudgeModel(apiKey, callModel, model) : null);
     const judge = useJudge ? createJudge({ callModel, model: judgeModel }) : null;
@@ -102,7 +108,7 @@ const main = async () => {
                     const log = (entry) => { logEntry = entry; };
                     const handle = suite.makeHandler
                         ? suite.makeHandler({ callTools, model: featureModels[suite.feature] || model, log })
-                        : createHandler({ callModel, model, featureModels, log });
+                        : createHandler({ callModel: callFeature, model, featureModels, log });
                     let output = null;
                     let errorMessage = '';
                     try {

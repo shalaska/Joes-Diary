@@ -23,8 +23,9 @@ export const newestStableFlash = (modelNames) => {
 export const isNewer = (candidate, current) => {
     const a = parseFlashVersion(candidate);
     const b = parseFlashVersion(current);
-    if (!a) return false;
-    if (!b) return true;
+    // A pinned model that is not a stable Flash (e.g. gemini-4-hydrogen) was chosen by hand,
+    // after evals: the weekly job never replaces it with a Flash.
+    if (!a || !b) return false;
     return compare(a, b) > 0;
 };
 
@@ -34,12 +35,15 @@ export const readPinnedModel = (envText) => {
 };
 
 // Per-feature overrides from the same file, e.g. GEMINI_MODEL_TODOS -> { extractTodos: ... }.
-const FEATURE_KEYS = { TODOS: 'extractTodos' };
+const FEATURE_KEYS = { TODOS: 'extractTodos', CHAT: 'chat', ASK: 'ask' };
 export const readFeatureModels = (envText) => Object.fromEntries(
     Object.entries(FEATURE_KEYS)
         .map(([suffix, feature]) => [feature, new RegExp(`^GEMINI_MODEL_${suffix}=(.+)$`, 'm').exec(envText)?.[1].trim()])
         .filter(([, model]) => model),
 );
+
+// GEMINI_THINKING: the thinking level used with the pinned model only ('' = model default).
+export const readThinking = (envText) => /^GEMINI_THINKING=(.*)$/m.exec(envText)?.[1].trim() || '';
 
 export const writePinnedModel = (envText, model) => {
     if (!/^GEMINI_MODEL=.*$/m.test(envText)) throw new Error('GEMINI_MODEL line not found');
