@@ -3,8 +3,9 @@ import { CHAT_CASES } from './cases/chat.js';
 import { EDIT_CASES } from './cases/edit.js';
 import { EXTRACT_TODOS_CASES } from './cases/extractTodos.js';
 import { ASK_CASES, TODAY } from './cases/ask.js';
+import { WEEK_REVIEW_CASES } from './cases/weekReview.js';
 import { DIARY, DIARY_DAYS, TODOS, diaryStore } from './agent/diary.js';
-import { gradeAsk, gradeCalendarNote, gradeChat, gradeEdit, gradeExtractTodos } from './graders.js';
+import { gradeAsk, gradeCalendarNote, gradeChat, gradeEdit, gradeExtractTodos, gradeWeekReview } from './graders.js';
 import { createAskHandler } from '../gateway/src/agent.js';
 
 // One suite per gateway feature: the cases, how to turn a case into gateway input, and its grader.
@@ -18,6 +19,7 @@ export const SUITES = [
     },
     { feature: 'chat', cases: CHAT_CASES, input: (c) => ({ text: c.text }), grade: gradeChat },
     { feature: 'edit', cases: EDIT_CASES, input: (c) => ({ selection: c.selection, instruction: c.instruction }), grade: gradeEdit },
+    { feature: 'weekReview', cases: WEEK_REVIEW_CASES, input: (c) => ({ weekLabel: c.weekLabel, days: c.days }), grade: gradeWeekReview },
     {
         // The agent: runs through createAskHandler over the synthetic diary, not the single-shot handler.
         feature: 'ask',

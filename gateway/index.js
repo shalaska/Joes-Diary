@@ -80,7 +80,8 @@ export const llm = onCall({
     const handle = createHandler({
         model: GEMINI_MODEL.value(),
         featureModels: { extractTodos: GEMINI_MODEL_TODOS.value() },
-        callModel: createGeminiClient({ apiKey: GEMINI_API_KEY.value() }),
+        // 55s: a week review writes a long answer; the browser waits up to 120s for it.
+        callModel: createGeminiClient({ apiKey: GEMINI_API_KEY.value(), timeoutMs: 55000 }),
         // Structured log line: metadata only, never prompts, inputs or outputs.
         log: (entry) => logger.info('llm_call', entry),
     });

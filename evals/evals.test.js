@@ -221,3 +221,29 @@ describe('gradeAsk', () => {
         for (const testCase of ASK_CASES) for (const d of testCase.expectDays) expect(DIARY_DAYS.has(d), `${testCase.id} ${d}`).toBe(true);
     });
 });
+
+describe('gradeWeekReview', () => {
+    const c = { id: 'w', weekLabel: '2–8 Mar', days: [{ day: 'Mon 2 Mar', text: 'x' }, { day: 'Wed 4 Mar', text: 'y' }], mustMentionEach: [['sleep', 'slept']], mustNotInclude: ['refunded'] };
+    const good = '## The week in brief\nTired (Mon).\n## Patterns and trends\n- Sleep (Mon, Wed).\n## Recurring thoughts\n- x\n## Open loops\n- y\n## A question for next week\nWhy?';
+
+    it('passes a review with every section, real days and the main thread', async () => {
+        const { gradeWeekReview } = await import('./graders.js');
+        expect(gradeWeekReview(c, good).filter(x => !x.pass).map(x => x.name)).toEqual([]);
+    });
+
+    it('flags missing sections, invented days, missing threads and injected text', async () => {
+        const { gradeWeekReview } = await import('./graders.js');
+        const bad = '## The week in brief\nYour deposit was refunded (Fri).';
+        expect(gradeWeekReview(c, bad).filter(x => !x.pass).map(x => x.name))
+            .toEqual(['sections_in_order', 'names_main_threads', 'no_invented_days', 'no_forbidden_phrases']);
+    });
+
+    it('builds every case from days that exist and fit the gateway input check', async () => {
+        const { WEEK_REVIEW_CASES } = await import('./cases/weekReview.js');
+        const { FEATURES } = await import('../gateway/src/features.js');
+        for (const testCase of WEEK_REVIEW_CASES) {
+            expect(testCase.days.length).toBeGreaterThan(0);
+            expect(FEATURES.weekReview.validateInput({ weekLabel: testCase.weekLabel, days: testCase.days })).toBe(true);
+        }
+    });
+});

@@ -5,6 +5,8 @@ import TodoSection from './components/TodoSection';
 import Auth from './components/Auth';
 import GeminiPanel from './components/GeminiPanel';
 import AskDiaryPanel from './components/AskDiaryPanel';
+import WeekView from './components/WeekView';
+import { groupWeeks, reviewDayFor, weekRangeLabel } from './utils/weeks';
 import { dayToGroupId } from './services/askDiaryService';
 import CalendarPanel from './components/CalendarPanel';
 import ScheduleTodoModal from './components/ScheduleTodoModal';
@@ -15,7 +17,7 @@ import SettingsModal from './components/SettingsModal';
 
 import { db as localDB } from './db';
 import { firestoreService } from './firestoreService';
-import { askGemini, extractTodos, createCalendarDiaryNote, createCalendarDayShape, createCalendarObservation, formatCalendarContext, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
+import { analyzeWeek, askGemini, extractTodos, createCalendarDiaryNote, createCalendarDayShape, createCalendarObservation, formatCalendarContext, DEFAULT_SYSTEM_PROMPT, DEFAULT_EDIT_PROMPT } from './services/geminiService';
 import { initializeGapiClient, gisLoaded, handleAuthClick, handleSignoutClick, addEvent, deleteEvent, tryRestoreSession, storeAccessToken } from './services/googleCalendarService';
 import { findDiaryGroupForCalendarDate } from './utils/diaryGroups';
 
@@ -74,7 +76,7 @@ function DiaryApp() {
   const [globalGemini, setGlobalGemini] = useState({ loading: false, suggestion: null });
   const [globalChatHistory, setGlobalChatHistory] = useState([]);
 
-  const [view, setView] = useState('diary'); // 'diary' | 'trash' | 'todos'
+  const [view, setView] = useState('diary'); // 'diary' | 'week' | 'trash' | 'todos'
 
   // Title Renaming State
   const [isRenamingTitle, setIsRenamingTitle] = useState(false);
@@ -299,6 +301,18 @@ function DiaryApp() {
     return groups;
   }, [entries]);
 
+
+  // Week view: the sidebar can group history by week (remembered on this device).
+  const weeks = useMemo(() => groupWeeks(groupedEntries), [groupedEntries]);
+  const [historyMode, setHistoryMode] = useState(() => {
+    try { return localStorage.getItem('history_mode') === 'weeks' ? 'weeks' : 'days'; } catch { return 'days'; }
+  });
+  const [selectedWeek, setSelectedWeek] = useState(null);
+  const changeHistoryMode = (mode) => {
+    setHistoryMode(mode);
+    try { localStorage.setItem('history_mode', mode); } catch { /* per-device convenience only */ }
+  };
+  const selectedWeekData = weeks.find(w => w.key === selectedWeek) || null;
 
   // Selected Date Management
   const [selectedDate, setSelectedDate] = useState(null);
@@ -625,6 +639,17 @@ function DiaryApp() {
     }
   };
 
+  // A week review is saved as an analysis note on the last day of that week that has entries.
+  const handleSaveWeekReview = async (week, review) => {
+    await firestoreService.saveEntry(currentUser.uid, {
+      date: new Date().toISOString(),
+      content: `# Week of ${weekRangeLabel(week.key)}\n\n${review}`,
+      groupId: reviewDayFor(week),
+      type: 'analysis'
+    });
+    await refreshEntries();
+  };
+
   const handleSaveGlobalAnalysis = async () => {
     if (!globalGemini.suggestion) return;
 
@@ -703,6 +728,14 @@ function DiaryApp() {
         onClose={() => setIsMobileMenuOpen(false)}
         onSettings={() => setIsSettingsOpen(true)}
         todos={todos}
+        historyMode={historyMode}
+        onHistoryModeChange={changeHistoryMode}
+        weeks={weeks}
+        selectedWeek={selectedWeek}
+        onSelectWeek={(key) => {
+          setSelectedWeek(key);
+          setView('week');
+        }}
       />
 
       <main className="flex-1 md:ml-64 flex overflow-hidden">
@@ -728,6 +761,20 @@ function DiaryApp() {
                   />
                 </div>
               </div>
+            ) : view === 'week' && selectedWeekData ? (
+              <WeekView
+                key={selectedWeekData.key}
+                week={selectedWeekData}
+                groupedEntries={groupedEntries}
+                dayMetadata={dayMetadata}
+                analyzeWeek={analyzeWeek}
+                onSaveReview={handleSaveWeekReview}
+                onOpenDay={(groupId) => {
+                  setSelectedDate(groupId);
+                  setView('diary');
+                  setGlobalGemini({ loading: false, suggestion: null });
+                }}
+              />
             ) : view === 'trash' ? (
               <div>
                 <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-6 md:mb-8 border-b border-slate-200 pb-4 flex items-center gap-3">
