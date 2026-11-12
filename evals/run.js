@@ -18,7 +18,7 @@ import { createHandler } from '../gateway/src/handler.js';
 import { createGeminiClient, createGeminiToolClient } from '../gateway/src/gemini.js';
 import { CALIBRATION } from './calibration.js';
 import { createJudge, judgeCandidates } from './judge.js';
-import { readFeatureModels, readPinnedModel } from '../scripts/geminiModel.js';
+import { readFeatureModels, readPinnedModel, readThinking } from '../scripts/geminiModel.js';
 import { SUITES } from './suites.js';
 import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
 import { compareToBaseline, gateMarkdown, toBaseline } from './gate.js';
@@ -81,10 +81,13 @@ const main = async () => {
     const only = (process.env.EVAL_FEATURES || '').split(',').map(s => s.trim()).filter(Boolean);
     const outDir = process.env.EVAL_OUT || 'eval-results';
 
-    // EVAL_THINKING sets the thinking level of the model under test only; the judge keeps its default.
-    const thinkingLevel = process.env.EVAL_THINKING || '';
+    // The thinking level applies to the model under test only, as live (GEMINI_THINKING goes with the
+    // pinned model, not with per-feature overrides). EVAL_THINKING overrides it; the judge keeps its default.
+    const level = process.env.EVAL_THINKING || (process.env.EVAL_MODEL ? '' : readThinking(envText));
+    if (level) console.log(`Thinking level for ${model}: ${level}`);
+    const thinkingLevel = (m) => (m === model ? level : '');
     const callModel = createGeminiClient({ apiKey, timeoutMs: 60000 });
-    const callFeature = thinkingLevel ? createGeminiClient({ apiKey, timeoutMs: 60000, thinkingLevel }) : callModel;
+    const callFeature = level ? createGeminiClient({ apiKey, timeoutMs: 60000, thinkingLevel }) : callModel;
     const callTools = createGeminiToolClient({ apiKey, timeoutMs: 60000, thinkingLevel });
     const useJudge = process.env.EVAL_JUDGE !== '0';
     const judgeModel = process.env.EVAL_JUDGE_MODEL || (useJudge || process.env.EVAL_CALIBRATE === '1' ? await chooseJudgeModel(apiKey, callModel, model) : null);

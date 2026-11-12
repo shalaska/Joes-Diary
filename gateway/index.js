@@ -25,6 +25,19 @@ const GEMINI_MODEL_TODOS = defineString('GEMINI_MODEL_TODOS', {
     description: 'Optional exact model for todo extraction. Blank = GEMINI_MODEL.',
 });
 
+const GEMINI_MODEL_ASK = defineString('GEMINI_MODEL_ASK', {
+    default: '',
+    description: 'Optional exact model for "Ask my diary" (the agent). Blank = GEMINI_MODEL.',
+});
+
+const GEMINI_THINKING = defineString('GEMINI_THINKING', {
+    default: '',
+    description: 'Thinking level (low, medium, high) for GEMINI_MODEL only. Blank = the model default.',
+});
+
+// The thinking level applies to the pinned model only, never to a per-feature override.
+const thinkingFor = (model) => (model === GEMINI_MODEL.value() ? GEMINI_THINKING.value() : '');
+
 const DAILY_CALL_LIMIT = 300;
 
 const isAllowedUser = async (uid) => (await getFirestore().doc(`allowedUsers/${uid}`).get()).exists;
@@ -60,8 +73,8 @@ export const llm = onCall({
     if (request.data?.feature === 'ask') {
         const db = getFirestore();
         const ask = createAskHandler({
-            model: GEMINI_MODEL.value(),
-            callTools: createGeminiToolClient({ apiKey: GEMINI_API_KEY.value(), timeoutMs: 25000 }),
+            model: GEMINI_MODEL_ASK.value() || GEMINI_MODEL.value(),
+            callTools: createGeminiToolClient({ apiKey: GEMINI_API_KEY.value(), timeoutMs: 25000, thinkingLevel: thinkingFor }),
             store: {
                 entries: async () => (await db.collection(`users/${uid}/entries`).get()).docs.map(d => d.data()),
                 todos: async () => (await db.collection(`users/${uid}/todos`).get()).docs.map(d => d.data()),
@@ -81,7 +94,7 @@ export const llm = onCall({
         model: GEMINI_MODEL.value(),
         featureModels: { extractTodos: GEMINI_MODEL_TODOS.value() },
         // 55s: a week review writes a long answer; the browser waits up to 120s for it.
-        callModel: createGeminiClient({ apiKey: GEMINI_API_KEY.value(), timeoutMs: 55000 }),
+        callModel: createGeminiClient({ apiKey: GEMINI_API_KEY.value(), timeoutMs: 55000, thinkingLevel: thinkingFor }),
         // Structured log line: metadata only, never prompts, inputs or outputs.
         log: (entry) => logger.info('llm_call', entry),
     });

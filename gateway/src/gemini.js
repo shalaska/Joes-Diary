@@ -56,14 +56,18 @@ const generate = async ({ apiKey, fetchImpl, timeoutMs, model, body }) => {
 const textOf = (content) => (content.parts || []).map(part => part.text || '').join('');
 
 // thinkingLevel ('low', 'medium', 'high'...) caps how much a thinking model reasons before it
-// answers; left out, the model's own default applies.
-const thinkingConfigFor = (thinkingLevel) => (thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {});
+// answers; left out, the model's own default applies. It may be a function of the model name,
+// so a level meant for one model is not sent to another (e.g. a Flash-Lite override).
+const thinkingConfigFor = (thinkingLevel, model) => {
+    const level = typeof thinkingLevel === 'function' ? thinkingLevel(model) : thinkingLevel;
+    return level ? { thinkingConfig: { thinkingLevel: level } } : {};
+};
 
 // One prompt in, one answer out (optionally JSON with a schema). Used by the single-shot features.
 export const createGeminiClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 30000, thinkingLevel = '' }) => async ({ model, prompt, schema }) => {
     const generationConfig = {
         ...(schema ? { responseMimeType: 'application/json', responseSchema: schema } : {}),
-        ...thinkingConfigFor(thinkingLevel),
+        ...thinkingConfigFor(thinkingLevel, model),
     };
     const result = await generate({
         apiKey, fetchImpl, timeoutMs, model,
@@ -81,7 +85,7 @@ export const createGeminiToolClient = ({ apiKey, fetchImpl = fetch, timeoutMs = 
             systemInstruction: { parts: [{ text: system }] },
             contents,
             ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
-            ...(thinkingLevel ? { generationConfig: thinkingConfigFor(thinkingLevel) } : {}),
+            ...(thinkingConfigFor(thinkingLevel, model).thinkingConfig ? { generationConfig: thinkingConfigFor(thinkingLevel, model) } : {}),
         },
     });
     const calls = (result.content.parts || []).filter(part => part.functionCall).map(part => part.functionCall);

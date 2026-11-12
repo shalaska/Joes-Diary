@@ -161,6 +161,10 @@ describe('createGeminiClient', () => {
 
         await createGeminiClient({ apiKey: 'k', fetchImpl })({ model: MODEL, prompt: 'p' });
         expect(JSON.parse(fetchImpl.mock.calls[1][1].body).generationConfig).toEqual({});
+
+        const perModel = createGeminiClient({ apiKey: 'k', fetchImpl, thinkingLevel: (m) => (m === MODEL ? 'low' : '') });
+        await perModel({ model: 'gemini-3.1-flash-lite', prompt: 'p' });
+        expect(JSON.parse(fetchImpl.mock.calls[2][1].body).generationConfig).toEqual({});
     });
 
     it('sends the key in a header, asks for JSON when there is a schema, and reads usage', async () => {

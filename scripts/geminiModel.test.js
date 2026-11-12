@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isNewer, newestStableFlash, parseFlashVersion, readFeatureModels, readPinnedModel, writePinnedModel } from './geminiModel.js';
+import { isNewer, newestStableFlash, parseFlashVersion, readFeatureModels, readPinnedModel, readThinking, writePinnedModel } from './geminiModel.js';
 
 describe('newestStableFlash', () => {
     it('picks the highest stable Flash model and ignores previews, lite, tts, image and aliases', () => {
@@ -29,7 +29,7 @@ describe('isNewer', () => {
     });
 
     it('treats an unparseable current pin as replaceable, and never picks an unparseable candidate', () => {
-        expect(isNewer('gemini-3.8-flash', 'something-else')).toBe(true);
+        expect(isNewer('gemini-3.8-flash', 'gemini-4-hydrogen')).toBe(false);
         expect(isNewer('gemini-flash-latest', 'gemini-3.8-flash')).toBe(false);
         expect(parseFlashVersion('gemini-flash-latest')).toBeNull();
     });
@@ -52,5 +52,8 @@ describe('readFeatureModels', () => {
     it('maps per-feature lines to features and ignores missing ones', () => {
         expect(readFeatureModels('GEMINI_MODEL=a\nGEMINI_MODEL_TODOS=gemini-3.1-flash-lite\n')).toEqual({ extractTodos: 'gemini-3.1-flash-lite' });
         expect(readFeatureModels('GEMINI_MODEL=a\n')).toEqual({});
+        expect(readFeatureModels('GEMINI_MODEL=a\nGEMINI_MODEL_ASK=gemini-3.8-flash\n')).toEqual({ ask: 'gemini-3.8-flash' });
+        expect(readThinking('GEMINI_MODEL=a\nGEMINI_THINKING=low\n')).toBe('low');
+        expect(readThinking('GEMINI_MODEL=a\n')).toBe('');
     });
 });
