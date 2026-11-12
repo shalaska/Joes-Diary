@@ -6,6 +6,7 @@
 //   GEMINI_API_KEY=... EVAL_MODEL=gemini-x.y-flash node evals/run.js
 //
 // Options (env): EVAL_MODEL, EVAL_FEATURES (comma list), EVAL_REPEATS (default 1),
+// EVAL_AGENT_REPEATS (runs per agent case, default EVAL_REPEATS: the agent costs the most),
 // EVAL_OUT (default eval-results), EVAL_MIN_PASS_RATE (fail the run below this, 0-1),
 // EVAL_JUDGE_MODEL (default: newest stable Pro), EVAL_JUDGE=0 (code graders only),
 // EVAL_CALIBRATE=1 (only score the judge against the hand labels in calibration.js),
@@ -76,6 +77,7 @@ const main = async () => {
     const featureModels = process.env.EVAL_MODEL ? {} : readFeatureModels(envText);
     if (Object.keys(featureModels).length) console.log(`Per-feature models: ${JSON.stringify(featureModels)}`);
     const repeats = Number(process.env.EVAL_REPEATS || 1);
+    const agentRepeats = Number(process.env.EVAL_AGENT_REPEATS || repeats);
     const only = (process.env.EVAL_FEATURES || '').split(',').map(s => s.trim()).filter(Boolean);
     const outDir = process.env.EVAL_OUT || 'eval-results';
 
@@ -94,7 +96,7 @@ const main = async () => {
     const jobs = [];
     for (const suite of suites) {
         for (const testCase of suite.cases) {
-            for (let run = 1; run <= repeats; run++) {
+            for (let run = 1; run <= (suite.makeHandler ? agentRepeats : repeats); run++) {
                 jobs.push(async () => {
                     let logEntry = null;
                     const log = (entry) => { logEntry = entry; };
@@ -116,7 +118,7 @@ const main = async () => {
                         : [{ name: 'gateway_ok', pass: false, detail: [logEntry?.outcome ?? 'no log', errorMessage].filter(Boolean).join(': ') }];
                     let judged = null;
                     if (judge && answered) {
-                        judged = await judge(suite.feature, (suite.judgeInput || suite.input)(testCase), output)
+                        judged = await judge(suite.feature, (suite.judgeInput || suite.input)(testCase, output), output)
                             .catch(error => ({ error: error.message }));
                         // A judge failure is reported, but never counted against the model under test.
                         if (judged && !judged.error) checks.push({ name: 'judge', pass: judged.pass, detail: `${Object.entries(judged.scores).map(([k, v]) => `${k} ${v}`).join(', ')}. ${judged.reason}` });

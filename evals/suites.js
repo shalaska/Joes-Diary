@@ -28,7 +28,18 @@ export const SUITES = [
             return ({ input }) => ask(input);
         },
         grade: (c, output, logEntry) => gradeAsk(c, output, logEntry, DIARY_DAYS),
-        // The judge sees the whole synthetic diary and to-do list so it can check groundedness.
-        judgeInput: (c) => ({ question: c.question, today: TODAY, diary: DIARY.map(e => `${e.date.slice(0, 10)}: ${e.content}`).join('\n'), todos: TODOS.map(t => `${t.completed ? '[done]' : '[open]'} ${t.text} (${t.priority})`).join('\n') }),
+        // The judge sees the entries that matter (the expected days and the days the answer
+        // cited) and the to-do list, not the whole diary: enough to check grounding, at a
+        // fraction of the tokens. Code graders check invented days and not-found honesty.
+        judgeInput: (c, output) => {
+            const days = new Set([...c.expectDays, ...(c.mayCite ?? []), ...(output?.citedDays ?? [])]);
+            const entries = DIARY.filter(e => days.has(e.date.slice(0, 10)));
+            return {
+                question: c.question, today: TODAY,
+                diary: entries.length ? entries.map(e => `${e.date.slice(0, 10)}: ${e.content}`).join('\n') : '(no entry in the diary is relevant to this question)',
+                note: 'Only the relevant entries of a longer diary are shown.',
+                todos: TODOS.map(t => `${t.completed ? '[done]' : '[open]'} ${t.text} (${t.priority})`).join('\n'),
+            };
+        },
     },
 ];

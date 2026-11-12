@@ -42,7 +42,7 @@ model). Some cases are flaky rather than broken, for example a todo priority tha
 3 times in 5, so the tolerance is set so that one or two flaky failures in a 3-repeat PR
 run do not block a merge.
 
-- PRs run each case 3 times with the gate on (`EVAL_GATE=1`). The ask suite costs far more tokens
+- PRs run each case 3 times with the gate on (`EVAL_GATE=1`), and each ask case once. The ask suite costs far more tokens
   than the rest, so a PR runs it only when it touches the agent, its evals or the Gemini client;
   features a run leaves out are not gated. Only one eval run per branch runs at a time.
 - The weekly model bump runs the evals on the candidate model with the gate on, so a new
