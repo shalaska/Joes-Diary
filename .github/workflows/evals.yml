@@ -102,6 +102,8 @@ jobs:
           EVAL_MODEL: ${{ inputs.model }}
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model }}
           EVAL_REPEATS: ${{ inputs.repeats || '3' }}
+          # The ask agent makes several model calls per case, so PRs run each of its cases once.
+          EVAL_AGENT_REPEATS: ${{ github.event_name == 'pull_request' && '1' || '' }}
           EVAL_GATE: ${{ (github.event_name == 'pull_request' || inputs.gate) && '1' || '0' }}
           EVAL_OUT: ${{ runner.temp }}/eval-results
         run: |
