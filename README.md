@@ -16,8 +16,10 @@ Live at https://joesdiary-d8211.web.app. Sign-up is closed.
   The work calendar is blocked by default.
 - **Gemini features**: a thinking-partner chat on an entry, edit-the-selection,
   todo extraction, a diary note drafted from a day's calendar, a "day shape"
-  summary, "Ask my diary" (a read-only agent) and "Analyze my week" (the sidebar can
-  group history by week; a week's review saves itself to the week's last day).
+  summary, "Ask my diary" (an agent that reads the diary to answer, and can suggest
+  a to-do or a note that is added only when you tap Add) and "Analyze my week" (the
+  sidebar can group history by week; a week's review saves itself to the week's
+  last day).
 - **Daily anchors** (up to three things that would make a day count, at the top of
   each day) and **Goals** grouped by timeframe, with the last two weeks of anchors.
 - **Import and export**: Notion import, Markdown zip export.
@@ -99,8 +101,10 @@ release like any other: reviewed, tested and revertable.
 2. **Evals** (next): offline eval suites on synthetic data for todo extraction and
    calendar notes, run in CI so a prompt or model change that makes things worse
    cannot ship.
-3. **An agent with permission tiers**: read tools run freely, writes are
-   reversible or need a tap, destructive actions are never taken by the agent.
+3. **An agent with permission tiers** (done): read tools run freely; a write is
+   only ever a suggestion (`users/{uid}/agentProposals`) that the app applies on a
+   tap and that expires after seven days; no tool edits, deletes or sends, so
+   destructive actions are never taken by the agent.
 4. **A remote MCP server with OAuth** so other AI clients can use the diary with
    scoped, revocable access.
 5. **Metadata-only analytics in SQL** and **SLOs with OpenTelemetry**.

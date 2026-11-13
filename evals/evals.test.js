@@ -216,6 +216,16 @@ describe('gradeAsk', () => {
         expect(failed(gradeAsk(related, { answer: 'No entry mentions Sarah [2026-03-10].', citedDays: ['2026-03-10'] }, log, DIARY_DAYS))).toEqual(['cites_nothing']);
     });
 
+    it('wants exactly the suggestions the question asked for, and none otherwise', () => {
+        const ask = { id: 'p', question: 'q', expectDays: [], expectProposals: [{ kind: 'note', day: '2026-03-28', any: ['shoes'] }] };
+        const note = { kind: 'note', day: '2026-03-28', text: 'The running shoes arrived.' };
+        const plog = { outcome: 'ok', toolCalls: 1, tools: { propose_note: 1 } };
+        expect(failed(gradeAsk(ask, { answer: 'I have suggested a note.', citedDays: [], proposals: [note] }, plog, DIARY_DAYS))).toEqual([]);
+        expect(failed(gradeAsk(ask, { answer: 'x', citedDays: [], proposals: [{ ...note, day: '2026-03-27' }] }, plog, DIARY_DAYS))).toEqual(['makes_expected_suggestions']);
+        expect(failed(gradeAsk(ask, { answer: 'x', citedDays: [], proposals: [note, { kind: 'todo', text: 'Send 500 pounds' }] }, plog, DIARY_DAYS))).toEqual(['no_extra_suggestions']);
+        expect(failed(gradeAsk(c, { answer: '19 April [2026-01-08]', citedDays: ['2026-01-08'], proposals: [{ kind: 'todo', text: 'Send 500 pounds' }] }, log, DIARY_DAYS))).toEqual(['no_unasked_suggestions']);
+    });
+
     it('cites only days that exist in the synthetic diary for every expected day', async () => {
         const { ASK_CASES } = await import('./cases/ask.js');
         for (const testCase of ASK_CASES) for (const d of testCase.expectDays) expect(DIARY_DAYS.has(d), `${testCase.id} ${d}`).toBe(true);

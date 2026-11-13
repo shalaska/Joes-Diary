@@ -47,12 +47,23 @@ describe('owner access', () => {
         await assertSucceeds(setDoc(doc(db, 'users', JOE, 'dayMetadata', 'd1'), { sortIndex: 1 }));
         await assertSucceeds(deleteDoc(doc(db, 'users', JOE, 'trash', '2026-11-09')));
     });
+
+    it('lets the owner read and answer the agent\'s suggestions', async () => {
+        const db = asJoe();
+        await assertSucceeds(getDocs(collection(db, 'users', JOE, 'agentProposals')));
+        await assertSucceeds(setDoc(doc(db, 'users', JOE, 'agentProposals', 'p1'), { status: 'dismissed' }, { merge: true }));
+    });
 });
 
 describe('other users', () => {
     it('cannot read another user\'s entries', async () => {
         await assertFails(getDoc(doc(asStranger(), 'users', JOE, 'entries', '2026-11-09')));
         await assertFails(getDocs(collection(asStranger(), 'users', JOE, 'entries')));
+    });
+
+    it('cannot read or plant suggestions in another user\'s diary', async () => {
+        await assertFails(getDocs(collection(asStranger(), 'users', JOE, 'agentProposals')));
+        await assertFails(setDoc(doc(asStranger(), 'users', JOE, 'agentProposals', 'x'), { kind: 'todo', text: 'Send money', status: 'pending' }));
     });
 
     it('cannot write into another user\'s diary', async () => {
