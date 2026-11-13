@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import worker from './index.js';
+import worker, { FEEDS } from './index.js';
 
 const env = {
     ALLOWED_ORIGINS: 'https://app.example',
@@ -31,5 +31,13 @@ describe('ics proxy', () => {
         const response = await worker.fetch(request({ Origin: 'https://app.example' }, 'OPTIONS'), env);
         expect(response.status).toBe(204);
         expect(response.headers.get('Access-Control-Allow-Headers')).toContain('Authorization');
+    });
+
+    it('serves the work and personal feeds, and nothing else', async () => {
+        expect(FEEDS).toEqual({ '/calendar.ics': 'ICS_URL', '/personal.ics': 'PERSONAL_ICS_URL' });
+        const unknown = await worker.fetch(new Request('https://proxy.example/other.ics', { headers: { Origin: 'https://app.example' } }), env);
+        expect(unknown.status).toBe(404);
+        const personal = await worker.fetch(new Request('https://proxy.example/personal.ics', { headers: { Origin: 'https://app.example' } }), env);
+        expect(personal.status).toBe(401); // a known feed still needs sign-in before anything else
     });
 });

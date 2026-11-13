@@ -1,7 +1,16 @@
-# Outlook ICS proxy
+# Calendar ICS proxy
 
-This Worker fetches the private Outlook ICS subscription for JoesDiary without
-placing the feed URL in the browser bundle.
+This Worker fetches private iCal feeds for JoesDiary without placing the feed URLs
+in the browser bundle:
+
+| Path | Worker secret | Calendar |
+| --- | --- | --- |
+| `/calendar.ics` | `ICS_URL` | Outlook work calendar |
+| `/personal.ics` | `PERSONAL_ICS_URL` | Google Calendar, via its "Secret address in iCal format" |
+
+A feed whose secret is not set answers 503, and the app hides it. Unlike a Google
+sign-in in the browser, a feed never expires; reset the secret address in Google
+Calendar to revoke it.
 
 It only serves the feed to a signed-in, allowlisted account. Every request must
 carry `Authorization: Bearer <Firebase ID token>`. The Worker checks the token's
@@ -16,11 +25,12 @@ Merges to `main` that touch this folder deploy it from GitHub Actions
 ```sh
 npx wrangler login
 npx wrangler secret put ICS_URL
+npx wrangler secret put PERSONAL_ICS_URL
 npx wrangler deploy
 ```
 
 Paste the resulting `https://...workers.dev/calendar.ics` address into
 JoesDiary Settings under **Outlook Work Calendar**.
 
-The published ICS address is a bearer secret. Never commit it to this repository
+The published ICS addresses are bearer secrets. Never commit it to this repository
 or place it in `wrangler.jsonc`.

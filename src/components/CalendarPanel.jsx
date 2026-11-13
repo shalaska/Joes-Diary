@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Calendar, LogIn, LogOut, RefreshCw, AlertCircle, ChevronLeft, ChevronRight, Plus, Sparkles, CheckCircle2, List, Clock3, Trash2, X } from 'lucide-react';
 import { listCalendars, listEventsForDay } from '../services/googleCalendarService';
-import { cacheIcsEventsForDay, fetchIcsEventsForDay, getCachedIcsEventsForDay, ICS_CALENDAR_COLOR, ICS_CALENDAR_ID, ICS_CALENDAR_NAME } from '../services/icsCalendarService';
+import { cacheIcsEventsForDay, dedupeFeedEvents, fetchIcsEventsForDay, FeedNotConfiguredError, getCachedIcsEventsForDay, ICS_CALENDAR_ID, ICS_FEEDS, isIcsCalendarId } from '../services/icsCalendarService';
 import { filterEventsForAi, getAiExcludedCalendarIds, saveAiExcludedCalendarIds } from '../utils/aiCalendarPrivacy';
 
 const HOUR_HEIGHT = 64;
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 const CALENDAR_SELECTION_KEY = 'selected_google_calendar_ids';
+
+// Which proxy address each feed was last auto-selected for (the Work key predates the Personal feed).
+const autoSelectKey = (feed) => (feed.id === ICS_CALENDAR_ID ? 'ics_proxy_auto_selected' : `ics_feed_auto_selected_${feed.id}`);
 
 const getEventKey = (event) => `${event._calendarId || 'primary'}:${event.id}`;
 
@@ -73,9 +76,11 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     const [isCalendarPickerOpen, setIsCalendarPickerOpen] = useState(false);
     const [isLoadingCalendars, setIsLoadingCalendars] = useState(false);
     const [aiExcludedCalendarIds, setAiExcludedCalendarIds] = useState(() => getAiExcludedCalendarIds());
+    // Feeds the proxy has no secret for: hidden rather than shown as errors.
+    const [missingFeedIds, setMissingFeedIds] = useState([]);
     const contentRef = useRef(null);
     const eventRequestIdRef = useRef(0);
-    const events = useMemo(() => [...googleEvents, ...icsEvents].sort((first, second) => {
+    const events = useMemo(() => [...googleEvents, ...dedupeFeedEvents(googleEvents, icsEvents)].sort((first, second) => {
         const firstStart = new Date(first.start.dateTime || first.start.date).getTime();
         const secondStart = new Date(second.start.dateTime || second.start.date).getTime();
         return firstStart - secondStart;
@@ -83,9 +88,15 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
     // Only events from calendars allowed for AI are ever passed to Gemini.
     const aiEvents = useMemo(() => filterEventsForAi(events, aiExcludedCalendarIds), [events, aiExcludedCalendarIds]);
 
+    // iCal feeds load without any Google sign-in, so they never expire. Google calendars load only
+    // while the (hour-long) Google sign-in is valid; when it lapses the feeds keep showing.
     useEffect(() => {
         const requestId = ++eventRequestIdRef.current;
-        if (!isSignedIn || selectedCalendarIds.length === 0) {
+        const feeds = icsProxyUrl
+            ? ICS_FEEDS.filter(feed => selectedCalendarIds.includes(feed.id) && !missingFeedIds.includes(feed.id))
+            : [];
+        const googleCalendarIds = isSignedIn ? selectedCalendarIds.filter(calendarId => !isIcsCalendarId(calendarId)) : [];
+        if (!feeds.length && !googleCalendarIds.length) {
             setGoogleEvents([]);
             setIcsEvents([]);
             setIsLoading(false);
@@ -96,8 +107,6 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
 
         setError(null);
         const calendarById = new Map(calendars.map(calendarItem => [calendarItem.id, calendarItem]));
-        const googleCalendarIds = selectedCalendarIds.filter(calendarId => calendarId !== ICS_CALENDAR_ID);
-        const shouldLoadIcs = Boolean(icsProxyUrl && selectedCalendarIds.includes(ICS_CALENDAR_ID));
 
         if (googleCalendarIds.length) {
             setIsLoading(true);
@@ -114,7 +123,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                     if (eventRequestIdRef.current !== requestId) return;
                     console.error('Google Calendar fetch error:', err);
                     if (err.status === 401 || err.result?.error?.code === 401) {
-                        setError('Session expired. Please sign in again.');
+                        setError(feeds.length ? 'Google sign-in expired. Your calendar feeds are still shown.' : 'Session expired. Please sign in again.');
                         onSignOut?.();
                     } else {
                         setError('Google Calendar could not be refreshed. Other events are still shown.');
@@ -128,38 +137,48 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
             setIsLoading(false);
         }
 
-        if (shouldLoadIcs) {
+        if (feeds.length) {
             setIcsEvents([]);
             setIsRefreshingIcs(true);
+            const byFeed = {};
+            const show = () => {
+                if (eventRequestIdRef.current === requestId) setIcsEvents(Object.values(byFeed).flat());
+            };
 
-            const loadIcsEvents = async () => {
+            const loadFeed = async (feed) => {
                 try {
-                    const cached = await getCachedIcsEventsForDay(icsProxyUrl, currentDate);
-                    if (eventRequestIdRef.current !== requestId) return;
-                    if (cached?.events) setIcsEvents(cached.events);
+                    const cached = await getCachedIcsEventsForDay(icsProxyUrl, currentDate, feed);
+                    if (cached?.events) {
+                        byFeed[feed.id] = cached.events;
+                        show();
+                    }
                 } catch (cacheError) {
-                    console.warn('Work calendar cache could not be read:', cacheError);
+                    console.warn(`${feed.name} calendar cache could not be read:`, cacheError);
                 }
 
                 try {
-                    const fetchedEvents = await fetchIcsEventsForDay(icsProxyUrl, currentDate);
-                    if (eventRequestIdRef.current !== requestId) return;
-                    setIcsEvents(fetchedEvents);
+                    const fetchedEvents = await fetchIcsEventsForDay(icsProxyUrl, currentDate, undefined, feed);
+                    byFeed[feed.id] = fetchedEvents;
+                    show();
                     try {
-                        await cacheIcsEventsForDay(icsProxyUrl, currentDate, fetchedEvents);
+                        await cacheIcsEventsForDay(icsProxyUrl, currentDate, fetchedEvents, feed);
                     } catch (cacheError) {
-                        console.warn('Work calendar cache could not be saved:', cacheError);
+                        console.warn(`${feed.name} calendar cache could not be saved:`, cacheError);
                     }
                 } catch (icsError) {
                     if (eventRequestIdRef.current !== requestId) return;
-                    console.error('Work calendar refresh error:', icsError);
-                    setError(previous => previous || 'Work calendar could not be refreshed. Cached events are still shown when available.');
-                } finally {
-                    if (eventRequestIdRef.current === requestId) setIsRefreshingIcs(false);
+                    if (icsError instanceof FeedNotConfiguredError) {
+                        setMissingFeedIds(previous => [...new Set([...previous, feed.id])]);
+                        return;
+                    }
+                    console.error(`${feed.name} calendar refresh error:`, icsError);
+                    setError(previous => previous || `${feed.name} calendar could not be refreshed. Cached events are still shown when available.`);
                 }
             };
 
-            loadIcsEvents();
+            Promise.all(feeds.map(loadFeed)).finally(() => {
+                if (eventRequestIdRef.current === requestId) setIsRefreshingIcs(false);
+            });
         } else {
             setIcsEvents([]);
             setIsRefreshingIcs(false);
@@ -168,67 +187,73 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
         return () => {
             if (eventRequestIdRef.current === requestId) eventRequestIdRef.current += 1;
         };
-    }, [isSignedIn, currentDate, refreshKey, manualRefreshKey, selectedCalendarIds, icsProxyUrl, calendars]);
+    }, [isSignedIn, currentDate, refreshKey, manualRefreshKey, selectedCalendarIds, icsProxyUrl, calendars, missingFeedIds]);
 
     useEffect(() => {
-        if (!isSignedIn || selectedCalendarIds.length === 0) return;
+        if (selectedCalendarIds.length === 0 || (!isSignedIn && !icsProxyUrl)) return;
         onCalendarContextChange?.({ date: currentDate.toISOString(), events: aiEvents });
-    }, [aiEvents, currentDate, isSignedIn, selectedCalendarIds, onCalendarContextChange]);
+    }, [aiEvents, currentDate, isSignedIn, icsProxyUrl, selectedCalendarIds, onCalendarContextChange]);
 
+    // The calendar list: the proxy's iCal feeds always, plus Google calendars while signed in.
     useEffect(() => {
-        if (!isSignedIn) {
+        if (!isSignedIn && !icsProxyUrl) {
             setCalendars([]);
             setSelectedCalendarIds([]);
-            return;
+            return undefined;
         }
 
         let isActive = true;
         const fetchCalendars = async () => {
             setIsLoadingCalendars(true);
+            const feeds = icsProxyUrl ? ICS_FEEDS.filter(feed => !missingFeedIds.includes(feed.id)) : [];
+            const feedCalendars = feeds.map(feed => ({
+                id: feed.id,
+                summary: feed.name,
+                backgroundColor: feed.color,
+                accessRole: 'reader',
+                _isIcsSubscription: true,
+                _source: feed.source,
+            }));
+            let googleCalendarList = [];
             try {
-                const googleCalendarList = await listCalendars();
-                if (!isActive) return;
-                const calendarList = icsProxyUrl
-                    ? [...googleCalendarList, {
-                        id: ICS_CALENDAR_ID,
-                        summary: ICS_CALENDAR_NAME,
-                        backgroundColor: ICS_CALENDAR_COLOR,
-                        accessRole: 'reader',
-                        _isIcsSubscription: true,
-                    }]
-                    : googleCalendarList;
-                setCalendars(calendarList);
-
-                let savedCalendarIds = [];
-                try {
-                    savedCalendarIds = JSON.parse(localStorage.getItem(CALENDAR_SELECTION_KEY) || '[]');
-                } catch {
-                    savedCalendarIds = [];
-                }
-                const availableIds = new Set(calendarList.map(calendarItem => calendarItem.id));
-                const validSavedIds = savedCalendarIds.filter(calendarId => availableIds.has(calendarId));
-                const primaryId = calendarList.find(calendarItem => calendarItem.primary)?.id || calendarList[0]?.id;
-                let nextSelectedIds = validSavedIds.length ? validSavedIds : (primaryId ? [primaryId] : []);
-                const lastAutoSelectedProxy = localStorage.getItem('ics_proxy_auto_selected');
-                if (icsProxyUrl && lastAutoSelectedProxy !== icsProxyUrl) {
-                    nextSelectedIds = [...new Set([...nextSelectedIds, ICS_CALENDAR_ID])];
-                    localStorage.setItem('ics_proxy_auto_selected', icsProxyUrl);
-                    localStorage.setItem(CALENDAR_SELECTION_KEY, JSON.stringify(nextSelectedIds));
-                }
-                setSelectedCalendarIds(nextSelectedIds);
+                if (isSignedIn) googleCalendarList = await listCalendars();
             } catch (calendarError) {
                 console.error('Calendar list fetch failed:', calendarError);
-                if (isActive) setError('Failed to load your Google calendars. Please try again.');
-            } finally {
-                if (isActive) setIsLoadingCalendars(false);
+                if (isActive) setError('Failed to load your Google calendars. Your calendar feeds are still shown.');
             }
+            if (!isActive) return;
+            const calendarList = [...googleCalendarList, ...feedCalendars];
+            setCalendars(calendarList);
+
+            let savedCalendarIds = [];
+            try {
+                savedCalendarIds = JSON.parse(localStorage.getItem(CALENDAR_SELECTION_KEY) || '[]');
+            } catch {
+                savedCalendarIds = [];
+            }
+            const availableIds = new Set(calendarList.map(calendarItem => calendarItem.id));
+            const validSavedIds = savedCalendarIds.filter(calendarId => availableIds.has(calendarId));
+            const primaryId = calendarList.find(calendarItem => calendarItem.primary)?.id;
+            const fallbackIds = feedCalendars.length ? feedCalendars.map(c => c.id) : (primaryId ? [primaryId] : calendarList.slice(0, 1).map(c => c.id));
+            let nextSelectedIds = validSavedIds.length ? validSavedIds : fallbackIds;
+
+            // A feed that is new on this proxy is switched on once; after that the user's choice stands.
+            const newFeeds = feeds.filter(feed => localStorage.getItem(autoSelectKey(feed)) !== icsProxyUrl);
+            if (newFeeds.length) {
+                nextSelectedIds = [...new Set([...nextSelectedIds, ...newFeeds.map(feed => feed.id)])];
+                newFeeds.forEach(feed => localStorage.setItem(autoSelectKey(feed), icsProxyUrl));
+                const stored = [...new Set([...savedCalendarIds, ...newFeeds.map(feed => feed.id)])];
+                localStorage.setItem(CALENDAR_SELECTION_KEY, JSON.stringify(stored));
+            }
+            setSelectedCalendarIds(nextSelectedIds);
+            setIsLoadingCalendars(false);
         };
 
         fetchCalendars();
         return () => {
             isActive = false;
         };
-    }, [isSignedIn, icsProxyUrl]);
+    }, [isSignedIn, icsProxyUrl, missingFeedIds]);
 
     const handleAiToggle = (calendarId) => {
         setAiExcludedCalendarIds(previous => {
@@ -246,7 +271,11 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                 ? [...new Set([...previous, calendarId])]
                 : previous.filter(selectedId => selectedId !== calendarId);
             if (next.length === 0) return previous;
-            localStorage.setItem(CALENDAR_SELECTION_KEY, JSON.stringify(next));
+            // Keep stored choices for calendars not listed right now (Google ones while signed out).
+            let stored = [];
+            try { stored = JSON.parse(localStorage.getItem(CALENDAR_SELECTION_KEY) || '[]'); } catch { stored = []; }
+            const listedIds = new Set(calendars.map(calendarItem => calendarItem.id));
+            localStorage.setItem(CALENDAR_SELECTION_KEY, JSON.stringify([...new Set([...stored.filter(id => !listedIds.has(id)), ...next])]));
             return next;
         });
     };
@@ -273,9 +302,17 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
         return () => window.clearInterval(timer);
     }, []);
 
-    const handleHourClick = (hour) => {
-        const startTime = `${String(hour).padStart(2, '0')}:00`;
+    // Adding an event writes to Google Calendar, so it is the one thing that needs the Google sign-in.
+    const addEvent = (startTime) => {
+        if (!isSignedIn) {
+            if (isConfigured) onSignIn?.();
+            return;
+        }
         onAddEvent(currentDate, startTime);
+    };
+
+    const handleHourClick = (hour) => {
+        addEvent(`${String(hour).padStart(2, '0')}:00`);
     };
 
     const openEventDetails = (event) => {
@@ -340,7 +377,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
 
     // ... (rendering logic updates) ...
 
-    if (!isConfigured) {
+    if (!isConfigured && !icsProxyUrl) {
         // ... same as before
         return (
             <div className="bg-white rounded-xl p-6 border border-slate-200 h-full flex flex-col items-center justify-center text-center">
@@ -356,8 +393,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
         );
     }
 
-    if (!isSignedIn) {
-        // ... same as before
+    if (!isSignedIn && !icsProxyUrl) {
         return (
             <div className="bg-white rounded-xl p-6 border border-slate-200 h-full flex flex-col items-center justify-center text-center">
                 <Calendar size={48} className="text-slate-200 mb-4" />
@@ -398,13 +434,24 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                         >
                             <RefreshCw size={16} className={isLoading || isRefreshingIcs ? "animate-spin" : ""} />
                         </button>
-                        <button
-                            onClick={onSignOut}
-                            className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Sign Out"
-                        >
-                            <LogOut size={16} />
-                        </button>
+                        {isSignedIn ? (
+                            <button
+                                onClick={onSignOut}
+                                className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Sign out of Google"
+                            >
+                                <LogOut size={16} />
+                            </button>
+                        ) : isConfigured && (
+                            <button
+                                onClick={onSignIn}
+                                className="flex items-center gap-1 px-2 py-1 text-xs text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                title="Sign in with Google to add events and see other Google calendars"
+                            >
+                                <LogIn size={14} />
+                                <span>Google</span>
+                            </button>
+                        )}
                     </div>
                 </div>
 
@@ -422,8 +469,10 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                         </button>
                     </div>
                     <button
-                        onClick={() => onAddEvent(currentDate)}
-                        className="flex items-center gap-1 bg-indigo-600 text-white px-2 py-1 rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
+                        onClick={() => addEvent()}
+                        disabled={!isSignedIn && !isConfigured}
+                        title={isSignedIn ? 'Add an event to Google Calendar' : 'Sign in with Google to add events'}
+                        className="flex items-center gap-1 disabled:opacity-50 bg-indigo-600 text-white px-2 py-1 rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
                     >
                         <Plus size={14} />
                         <span>Add Event</span>
@@ -486,7 +535,7 @@ const CalendarPanel = ({ isSignedIn, onSignIn, onSignOut, isConfigured, onAddEve
                                     <span className="ml-auto flex flex-shrink-0 items-center gap-2">
                                         {calendarItem.primary && <span className="text-[10px] text-slate-400">Primary</span>}
                                         {!calendarItem.primary && ['reader', 'freeBusyReader'].includes(calendarItem.accessRole) && (
-                                            <span className="text-[10px] text-slate-400">{calendarItem._isIcsSubscription ? 'Outlook' : 'Other'}</span>
+                                            <span className="text-[10px] text-slate-400">{calendarItem._isIcsSubscription ? `${calendarItem._source || 'Outlook'} feed` : 'Other'}</span>
                                         )}
                                         <button
                                             type="button"

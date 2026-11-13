@@ -8,6 +8,13 @@ const corsHeaders = (origin) => ({
     'Vary': 'Origin',
 });
 
+// Each feed path maps to the Worker secret holding that calendar's private iCal address.
+// calendar.ics is the Outlook work calendar; personal.ics is a Google Calendar "secret address".
+export const FEEDS = {
+    '/calendar.ics': 'ICS_URL',
+    '/personal.ics': 'PERSONAL_ICS_URL',
+};
+
 // Module scope survives between requests on a warm isolate, so keys and allowlist answers are reused.
 const getKeys = createKeyStore();
 let allowlistCheck = null;
@@ -37,7 +44,8 @@ export default {
             return new Response(null, { status: 204, headers: corsHeaders(origin) });
         }
 
-        if (request.method !== 'GET' || url.pathname !== '/calendar.ics') {
+        const feedSecret = FEEDS[url.pathname];
+        if (request.method !== 'GET' || !feedSecret) {
             return new Response('Not found', { status: 404, headers: corsHeaders(origin) });
         }
 
@@ -52,12 +60,13 @@ export default {
             });
         }
 
-        if (!env.ICS_URL) {
+        const feedUrl = env[feedSecret];
+        if (!feedUrl) {
             return new Response('ICS feed is not configured', { status: 503, headers: corsHeaders(origin) });
         }
 
         try {
-            const upstream = await fetch(env.ICS_URL, {
+            const upstream = await fetch(feedUrl, {
                 headers: { 'User-Agent': 'JoesDiary-Calendar/1.0' },
                 cf: { cacheEverything: true, cacheTtl: 300 },
             });
