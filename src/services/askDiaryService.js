@@ -19,7 +19,8 @@ export const calendarForAgent = (calendarContext) => {
     return events.length ? { [localDay(day)]: events } : {};
 };
 
-// Ask the read-only diary agent. Returns { answer, citedDays }.
+// Ask the diary agent. Returns { answer, citedDays, proposals }: proposals are suggestions
+// (a to-do, or a note for a day) that change nothing until the user adds them.
 export const askDiary = (question, calendarContext) => callLlmLong('ask', {
     question: question.trim().slice(0, 2000),
     today: localDay(new Date()),

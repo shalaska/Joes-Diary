@@ -10,6 +10,7 @@ import GoalsView from './components/GoalsView';
 import DailyAnchors from './components/DailyAnchors';
 import { dayKey, groupWeeks, parseGroupId, weekReviewEntry } from './utils/weeks';
 import { anchorsForDay } from './utils/anchorsGoals';
+import { noteGroupId, pendingProposals, proposalNoteEntry, proposalTodo, staleProposals } from './utils/proposals';
 import { dayToGroupId } from './services/askDiaryService';
 import CalendarPanel from './components/CalendarPanel';
 import ScheduleTodoModal from './components/ScheduleTodoModal';
@@ -54,6 +55,7 @@ function DiaryApp() {
   const [todos, setTodos] = useState([]);
   const [anchors, setAnchors] = useState([]);
   const [goals, setGoals] = useState([]);
+  const [proposals, setProposals] = useState([]); // suggestions from "Ask my diary" (agentProposals)
   const [quickCaptureMessage, setQuickCaptureMessage] = useState('');
   const [quickCaptureFailed, setQuickCaptureFailed] = useState(false);
 
@@ -272,6 +274,16 @@ function DiaryApp() {
           setGoals(cloudGoals);
         } catch (error) {
           console.error('Error loading anchors and goals', error);
+        }
+
+        try {
+          // Suggestions from "Ask my diary" that are still waiting. Expired ones are removed.
+          const cloudProposals = await firestoreService.listItems(currentUser.uid, 'agentProposals');
+          const stale = staleProposals(cloudProposals);
+          setProposals(cloudProposals.filter(p => !stale.includes(p)));
+          await Promise.all(stale.map(p => firestoreService.deleteItem(currentUser.uid, 'agentProposals', p.id)));
+        } catch (error) {
+          console.error('Error loading suggestions', error);
         }
 
         // 3. Load User Settings
@@ -683,6 +695,27 @@ function DiaryApp() {
     await firestoreService.deleteItem(currentUser.uid, 'dailyAnchors', id);
   };
 
+  // Suggestions from "Ask my diary". The agent cannot change the diary: a suggestion becomes a
+  // to-do or a new note only here, when the user taps Add. Dismissing only marks it.
+  const resolveProposal = async (proposal, status) => {
+    await firestoreService.updateItem(currentUser.uid, 'agentProposals', proposal.id, { status, resolvedAt: new Date().toISOString() });
+    setProposals(prev => prev.map(p => p.id === proposal.id ? { ...p, status } : p));
+  };
+
+  const handleApplyProposal = async (proposal) => {
+    if (proposal.kind === 'todo') {
+      await handleAddTodos([proposalTodo(proposal)]);
+    } else if (proposal.kind === 'note') {
+      await firestoreService.saveEntry(currentUser.uid, proposalNoteEntry(proposal, noteGroupId(proposal.day, groupedEntries, selectedDate)));
+      await refreshEntries();
+    } else {
+      return;
+    }
+    await resolveProposal(proposal, 'applied');
+  };
+
+  const handleDismissProposal = (proposal) => resolveProposal(proposal, 'dismissed');
+
   const handleAddGoal = async (fields) => {
     const goal = { ...fields, completed: false, createdAt: new Date().toISOString() };
     const id = await firestoreService.addItem(currentUser.uid, 'goals', goal);
@@ -990,6 +1023,9 @@ function DiaryApp() {
                         >
                           <BookOpen size={18} />
                           <span>Ask my diary</span>
+                          {pendingProposals(proposals).length > 0 && (
+                            <span className="text-xs bg-indigo-600 text-white px-2 py-0.5 rounded-full" title="Suggestions waiting for you">{pendingProposals(proposals).length}</span>
+                          )}
                         </button>
                       </div>
                     ) : (
@@ -1008,6 +1044,10 @@ function DiaryApp() {
                     {isAskDiaryOpen && (
                       <AskDiaryPanel
                         calendarContext={calendarContext}
+                        proposals={pendingProposals(proposals)}
+                        onNewProposals={(list) => setProposals(prev => [...prev.filter(p => !list.some(n => n.id === p.id)), ...list])}
+                        onApplyProposal={handleApplyProposal}
+                        onDismissProposal={handleDismissProposal}
                         onClose={() => setIsAskDiaryOpen(false)}
                         onOpenDay={(day) => {
                           const groupId = dayToGroupId(day);

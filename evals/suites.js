@@ -22,11 +22,13 @@ export const SUITES = [
     { feature: 'weekReview', cases: WEEK_REVIEW_CASES, input: (c) => ({ weekLabel: c.weekLabel, days: c.days }), grade: gradeWeekReview },
     {
         // The agent: runs through createAskHandler over the synthetic diary, not the single-shot handler.
+        // Suggestions are kept in memory: the eval store saves nothing.
         feature: 'ask',
         cases: ASK_CASES,
         input: (c) => ({ question: c.question, today: TODAY }),
         makeHandler: ({ callTools, model, log }) => {
-            const ask = createAskHandler({ callTools, model, store: diaryStore, log });
+            const store = { ...diaryStore, saveProposals: async (proposals) => proposals.map((_, i) => `eval-${i}`) };
+            const ask = createAskHandler({ callTools, model, store, log, allowedTiers: ['read', 'propose'] });
             return ({ input }) => ask(input);
         },
         grade: (c, output, logEntry) => gradeAsk(c, output, logEntry, DIARY_DAYS),

@@ -73,8 +73,9 @@ export const llm = onCall({
     if (!(await isAllowedUser(uid))) throw new HttpsError('permission-denied', 'This account is not allowed to use the diary.');
     if (!(await takeDailyQuota(uid))) throw new HttpsError('resource-exhausted', `Daily limit of ${DAILY_CALL_LIMIT} AI calls reached.`);
 
-    // "Ask my diary": the read-only agent. It reads only this user's own documents, through the
-    // Admin SDK scoped to users/{uid}, and has no tool that writes.
+    // "Ask my diary": the agent. It reads only this user's own documents, through the Admin SDK
+    // scoped to users/{uid}. It cannot change them: its only write is a suggestion document in
+    // users/{uid}/agentProposals, which the app shows for the user to add with one tap.
     if (request.data?.feature === 'ask') {
         const db = getFirestore();
         const ask = createAskHandler({
@@ -83,7 +84,15 @@ export const llm = onCall({
             store: {
                 entries: async () => (await db.collection(`users/${uid}/entries`).get()).docs.map(d => d.data()),
                 todos: async () => (await db.collection(`users/${uid}/todos`).get()).docs.map(d => d.data()),
+                saveProposals: async (proposals) => {
+                    const batch = db.batch();
+                    const refs = proposals.map(() => db.collection(`users/${uid}/agentProposals`).doc());
+                    refs.forEach((ref, i) => batch.set(ref, proposals[i]));
+                    await batch.commit();
+                    return refs.map(ref => ref.id);
+                },
             },
+            allowedTiers: ['read', 'propose'],
             log: (entry) => logger.info('llm_call', entry),
         });
         try {
