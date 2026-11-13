@@ -51,9 +51,12 @@ model). Some cases are flaky rather than broken, for example a todo priority tha
 3 times in 5, so the tolerance is set so that one or two flaky failures in a 3-repeat PR
 run do not block a merge.
 
-- PRs run each case 3 times with the gate on (`EVAL_GATE=1`), and each ask case once. The ask suite costs far more tokens
-  than the rest, so a PR runs it only when it touches the agent, its evals or the Gemini client;
-  features a run leaves out are not gated. Only one eval run per branch runs at a time.
+- A PR runs only the suites its change can affect (`pickSuites.js`): the agent's files run
+  the ask suite, prompts run the single-shot suites, the Gemini client or the model config run
+  everything, one feature's cases run that feature. Those cases run 3 times with the gate on
+  (`EVAL_GATE=1`), ask cases once. Features a run leaves out are not gated. A change to the
+  harness alone runs one cheap suite once, ungated, to prove the harness still works; tests
+  and docs run nothing. Only one eval run per branch runs at a time.
 - The weekly model bump runs the evals on the candidate model with the gate on, so a new
   model that is worse on our cases opens its PR marked "(evals regressed)" and fails.
 - After an intended change (a new prompt that trades one thing for another, or a new
@@ -62,6 +65,22 @@ run do not block a merge.
 ```sh
 GEMINI_API_KEY=... EVAL_REPEATS=5 EVAL_WRITE_BASELINE=1 node evals/run.js
 ```
+
+## What a run costs
+
+Every run spends from the Gemini spend cap, which the live app shares, so a run that is too
+big can switch the diary's AI off until the cap is raised or the month ends.
+
+- Each run ends with a cost table (`pricing.js`): every model call is counted, the models
+  under test and the judge on separate lines, thinking tokens included. `cost.json` holds the
+  same numbers. Quote these figures, not a guess from the token column of one suite.
+- `EVAL_MAX_COST_EUR` stops a run: once the run has cost that much, no further case starts and
+  the run fails. Up to four cases that were already running still finish. CI sets it to 1.00
+  (`max_cost` on a manual run).
+- For scale: in November 2026 a full PR run (all six suites, 3 runs per case, ask once) cost
+  about EUR 0.70. The judge scores every answer, so it is a real share of that.
+- Prices in `pricing.js` come from the billing report. Add the new model's line when the
+  pinned model changes; a model with no line is costed at the highest known price.
 
 ## Model bake-off
 

@@ -63,6 +63,9 @@ jobs:
           EVAL_MODEL: ${{ steps.check.outputs.candidate }}
           EVAL_GATE: '1'
           EVAL_REPEATS: '3'
+          # The ask agent costs the most, so each of its cases runs once. The run stops at this spend.
+          EVAL_AGENT_REPEATS: '1'
+          EVAL_MAX_COST_EUR: '1.50'
           EVAL_OUT: ${{ runner.temp }}/eval-results
           REPORT_FILE: ${{ runner.temp }}/model-bump-report.md
         run: |
