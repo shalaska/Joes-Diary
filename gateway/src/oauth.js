@@ -350,6 +350,38 @@ export const createOAuth = ({ base, store, verifyIdToken, isAllowedUser, fetchCl
         return { uid: doc.uid, scopes: doc.scopes, grantId: doc.grantId };
     };
 
+    // "Connected apps" in the diary's Settings: the signed-in user's own connections, and revoke.
+    const signedInUser = async (idToken) => {
+        let uid;
+        try {
+            uid = await verifyIdToken(str(idToken));
+        } catch {
+            return null;
+        }
+        return uid && (await isAllowedUser(uid)) ? uid : null;
+    };
+
+    const listConnections = async ({ idToken } = {}) => {
+        const uid = await signedInUser(idToken);
+        if (!uid) return oauthError(401, 'login_required', 'Sign in to the diary first.');
+        const grants = (await store.listGrants(uid)).filter(g => g.expiresAt > now());
+        const connections = grants
+            .map(g => ({ id: g.id, clientName: g.clientName, redirectHost: g.redirectHost, scopes: g.scopes, createdAt: g.createdAt, lastUsedAt: g.lastUsedAt }))
+            .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+        return { status: 200, body: { connections } };
+    };
+
+    const revokeConnection = async ({ idToken, id } = {}) => {
+        const uid = await signedInUser(idToken);
+        if (!uid) return oauthError(401, 'login_required', 'Sign in to the diary first.');
+        const grant = id ? await store.getGrant(str(id)) : null;
+        // Someone else's connection looks the same as one that does not exist.
+        if (!grant || grant.uid !== uid) return { status: 404, body: { error: 'not_found' } };
+        await store.deleteGrant(str(id));
+        log({ feature: 'oauth', step: 'revoke_in_settings', outcome: 'ok' });
+        return { status: 200, body: { revoked: true } };
+    };
+
     // The HTTP routes for everything above. Returns null for a path that is not OAuth's.
     const handle = async (request) => {
         const { pathname } = new URL(request.url);
@@ -369,6 +401,8 @@ export const createOAuth = ({ base, store, verifyIdToken, isAllowedUser, fetchCl
             '/oauth/authorize': async (body) => authorize(body || {}),
             '/oauth/token': token,
             '/oauth/revoke': revoke,
+            '/oauth/connections': async (body) => listConnections(body || {}),
+            '/oauth/connections/revoke': async (body) => revokeConnection(body || {}),
         };
         const route = routes[pathname];
         if (!route) return pathname.startsWith('/oauth/') ? json(404, { error: 'not_found' }) : null;
@@ -382,7 +416,7 @@ export const createOAuth = ({ base, store, verifyIdToken, isAllowedUser, fetchCl
         }
     };
 
-    return { resource, protectedResourceMetadata, authorizationServerMetadata, register, checkAuthorization, authorize, token, revoke, authenticate, handle };
+    return { resource, protectedResourceMetadata, authorizationServerMetadata, register, checkAuthorization, authorize, token, revoke, authenticate, listConnections, revokeConnection, handle };
 };
 
 // Fetches a Client ID Metadata Document: https only, no redirects, 5 s, at most 16 KB.
