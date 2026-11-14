@@ -10,7 +10,8 @@
 //
 // Only eval data is ever traced: invented cases and the model's answers to them. This file is
 // never imported by the gateway, so nothing from the live diary can reach Arize through it.
-import { diag, DiagConsoleLogger, DiagLogLevel, SpanStatusCode, trace } from '@opentelemetry/api';
+import { context, diag, DiagConsoleLogger, DiagLogLevel, SpanStatusCode, trace } from '@opentelemetry/api';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { BatchSpanProcessor, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
@@ -51,6 +52,8 @@ const countingExporter = (inner) => {
     };
 };
 
+let contextManagerSet = false;
+
 const noop = { enabled: false, tracer: trace.getTracer(PROJECT), sessionId: null, shutdown: async () => '' };
 
 /**
@@ -66,8 +69,10 @@ export const createEvalTracing = ({ env = process.env, exporter = null, now = Da
         resource: resourceFromAttributes({ [SEMRESATTRS_PROJECT_NAME]: PROJECT, 'service.name': PROJECT }),
         spanProcessors: [exporter ? new SimpleSpanProcessor(counted) : new BatchSpanProcessor(counted)],
     });
-    // Registers the async context manager, so spans started inside a case become its children.
-    provider.register();
+    // Only the async context manager is made global, so spans started inside a case become its
+    // children. The tracer provider is not: the gateway's own live spans (gateway/src/tracing.js)
+    // stay off during evals, so Arize gets only these eval spans.
+    if (!contextManagerSet) contextManagerSet = context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
     return {
         enabled: true,
         tracer: provider.getTracer(PROJECT),

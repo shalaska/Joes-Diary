@@ -10,6 +10,7 @@
 
 import { ModelError } from './gemini.js';
 import { GatewayError } from './handler.js';
+import { traceTool } from './tracing.js';
 
 export const AGENT_PROMPT_VERSION = 'ask-v3';
 export const MAX_TOOL_CALLS = 8;
@@ -284,7 +285,7 @@ export const runAgent = async ({ callTools, model, question, tools, allowedTiers
                 steps.push({ tool: String(call.name).slice(0, 40), tier: null, ok: false });
             } else {
                 try {
-                    response = await tool.run(call.args || {});
+                    response = await traceTool(call.name, tool.tier, () => tool.run(call.args || {}));
                     steps.push({ tool: call.name, tier: tool.tier, ok: !response.error });
                 } catch {
                     response = { error: 'The tool failed.' };

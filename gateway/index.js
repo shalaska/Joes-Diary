@@ -4,6 +4,8 @@
 // - Only accounts on the allowedUsers list may call it (same allowlist as the Firestore rules).
 // - The Gemini key lives in Secret Manager, never in the browser.
 // - The model version is pinned by config, and every call logs one metadata-only line.
+// - Every request is also a trace in Google Cloud Trace, built from the same metadata (tracing.js).
+import { SpanStatusCode } from '@opentelemetry/api';
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
@@ -17,6 +19,8 @@ import { createHandler, GatewayError } from './src/handler.js';
 import { createMcpHandler } from './src/mcp.js';
 import { createOAuth, fetchClientMetadata } from './src/oauth.js';
 import { createOAuthStore, createUserStore } from './src/store.js';
+import { FEATURES } from './src/features.js';
+import { annotateSpan, routeName, setUpTracing, traceRequest } from './src/tracing.js';
 
 initializeApp();
 
@@ -44,6 +48,32 @@ const GEMINI_THINKING = defineString('GEMINI_THINKING', {
     default: '',
     description: 'Thinking level (low, medium, high) for GEMINI_MODEL only. Blank = the model default.',
 });
+
+const GATEWAY_TRACING = defineString('GATEWAY_TRACING', {
+    default: 'on',
+    description: 'on: send each request as a trace to Google Cloud Trace (metadata only). off: no traces.',
+});
+
+// One tracing setup per instance, made on its first request. Off outside Google Cloud
+// (K_SERVICE is set only there), so the emulator and tests send nothing.
+let tracing;
+const tracingFor = () => {
+    if (tracing === undefined) {
+        tracing = process.env.K_SERVICE && GATEWAY_TRACING.value() !== 'off'
+            ? setUpTracing({ projectId: process.env.GCLOUD_PROJECT, onExportError: (name, status) => logger.warn('trace_export_failed', { name, status }) })
+            : null;
+    }
+    return tracing;
+};
+
+// Each metadata log line also goes onto the request's span, through the same allowlist.
+const logAndAnnotate = (event) => (entry) => {
+    logger.info(event, entry);
+    annotateSpan(entry);
+};
+
+// The feature name as the client sent it is only trusted when it is a known one.
+const featureName = (feature) => (feature === 'ask' || Object.hasOwn(FEATURES, feature) ? feature : 'unknown');
 
 // The thinking level applies to the pinned model only, never to a per-feature override.
 const thinkingFor = (model) => (model === GEMINI_MODEL.value() ? GEMINI_THINKING.value() : '');
@@ -73,7 +103,12 @@ export const llm = onCall({
     timeoutSeconds: 120, // the agent loop may take up to about 90 s; single-shot features finish far sooner
     memory: '256MiB',
     cors: ['https://joesdiary-d8211.web.app', 'https://joesdiary-d8211.firebaseapp.com', /^https:\/\/joesdiary-d8211--pr-\d+-[a-z0-9]+\.web\.app$/, /^http:\/\/localhost:\d+$/],
-}, async (request) => {
+}, (request) => {
+    const feature = featureName(request.data?.feature);
+    return traceRequest(tracingFor(), `llm ${feature}`, { 'diary.feature': feature }, () => handleLlm(request));
+});
+
+async function handleLlm(request) {
     const uid = request.auth?.uid;
     if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
     if (!(await isAllowedUser(uid))) throw new HttpsError('permission-denied', 'This account is not allowed to use the diary.');
@@ -88,7 +123,7 @@ export const llm = onCall({
             callTools: createGeminiToolClient({ apiKey: GEMINI_API_KEY.value(), timeoutMs: 25000, thinkingLevel: thinkingFor }),
             store: createUserStore(getFirestore(), uid),
             allowedTiers: ['read', 'propose'],
-            log: (entry) => logger.info('llm_call', entry),
+            log: logAndAnnotate('llm_call'),
         });
         try {
             return await ask(request.data?.input);
@@ -105,7 +140,7 @@ export const llm = onCall({
         // 55s: a week review writes a long answer; the browser waits up to 120s for it.
         callModel: createGeminiClient({ apiKey: GEMINI_API_KEY.value(), timeoutMs: 55000, thinkingLevel: thinkingFor }),
         // Structured log line: metadata only, never prompts, inputs or outputs.
-        log: (entry) => logger.info('llm_call', entry),
+        log: logAndAnnotate('llm_call'),
     });
 
     try {
@@ -115,7 +150,7 @@ export const llm = onCall({
         logger.error('llm_gateway_unexpected', { name: error?.name });
         throw new HttpsError('internal', 'Gateway error');
     }
-});
+}
 
 // The diary as an MCP server for Claude (Phase 3), with its own OAuth sign-in server. Firebase
 // Hosting sends /mcp, /oauth/* and /.well-known/* on the diary's address here, so the server,
@@ -127,7 +162,7 @@ let connector;
 const connectorHandler = () => {
     if (connector) return connector;
     const db = getFirestore();
-    const log = (entry) => logger.info('mcp_call', entry);
+    const log = logAndAnnotate('mcp_call');
     const oauth = createOAuth({
         base: DIARY_URL,
         store: createOAuthStore(db),
@@ -154,10 +189,20 @@ export const mcp = onRequest({
     memory: '256MiB',
     invoker: 'public', // Firebase Hosting rewrites need it; every route checks its own token
 }, async (req, res) => {
-    try {
-        await sendWebResponse(res, await connectorHandler()(toWebRequest(req, DIARY_URL)));
-    } catch (error) {
-        logger.error('mcp_unexpected', { name: error?.name });
-        res.status(500).set('Cache-Control', 'no-store').json({ error: 'server_error' });
-    }
+    // The spans are sent before the answer: once it is sent, the instance gets almost no CPU.
+    const response = await traceRequest(tracingFor(), `mcp ${routeName(req.path)}`, { 'http.request.method': req.method }, async (span) => {
+        try {
+            const answer = await connectorHandler()(toWebRequest(req, DIARY_URL));
+            span.setAttribute('http.response.status_code', answer.status);
+            if (answer.status >= 500) span.setStatus({ code: SpanStatusCode.ERROR });
+            return answer;
+        } catch (error) {
+            logger.error('mcp_unexpected', { name: error?.name });
+            span.setAttributes({ 'http.response.status_code': 500, 'error.type': error?.name || 'Error' });
+            span.setStatus({ code: SpanStatusCode.ERROR });
+            return null;
+        }
+    });
+    if (response) await sendWebResponse(res, response);
+    else res.status(500).set('Cache-Control', 'no-store').json({ error: 'server_error' });
 });
