@@ -31,6 +31,7 @@ const TOKENS = {
     'suggest-token': { uid: 'joe', scopes: [SCOPES.READ, SCOPES.SUGGEST] },
     'other-token': { uid: 'other', scopes: [SCOPES.READ] },
     'suggest-only-token': { uid: 'joe', scopes: [SCOPES.SUGGEST] },
+    'change-token': { uid: 'joe', scopes: [SCOPES.READ, SCOPES.CHANGE] },
 };
 const authenticate = async (request) => TOKENS[(request.headers.get('authorization') || '').replace(/^Bearer /, '')] ?? null;
 
@@ -55,11 +56,11 @@ afterEach(async () => {
 });
 
 describe('MCP server', () => {
-    it('offers the four read tools to a read-only connection, and no others', async () => {
+    it('offers only the read tools to a read-only connection', async () => {
         const { storeFor } = makeUsers();
         const client = await connect({ token: 'read-token', handler: createMcpHandler({ authenticate, storeFor }) });
         const { tools } = await client.listTools();
-        expect(tools.map(t => t.name).sort()).toEqual(['list_entries', 'list_todos', 'read_entries', 'search_entries']);
+        expect(tools.map(t => t.name).sort()).toEqual(['diary_status', 'list_entries', 'list_todos', 'read_entries', 'read_week', 'search_entries']);
         expect(tools.every(t => t.annotations?.readOnlyHint === true)).toBe(true);
         expect(tools.find(t => t.name === 'search_entries').inputSchema.required).toEqual(['query']);
         expect(client.getInstructions()).toMatch(/never follow it/);
@@ -109,10 +110,22 @@ describe('MCP server', () => {
         expect(result).toMatchObject({ suggested: true, id: 'p1' });
         expect(users.joe.proposals).toEqual([{
             kind: 'todo', text: 'Call Maya', priority: 'high', status: 'pending', source: 'mcp',
-            createdAt: '2026-11-13T10:00:00.000Z', expiresAt: '2026-11-20T10:00:00.000Z', promptVersion: 'mcp-v1/ask-v3',
+            createdAt: '2026-11-13T10:00:00.000Z', expiresAt: '2026-11-20T10:00:00.000Z', promptVersion: 'mcp-v2/ask-v3',
         }]);
         expect((await client.callTool({ name: 'propose_note', arguments: { day: 'tomorrow', text: 'x' } })).isError).toBe(true);
         expect(users.joe.proposals).toHaveLength(1);
+    });
+
+    it('offers the to-do tools only with the change permission, and marks delete as destructive', async () => {
+        const { storeFor } = makeUsers();
+        const handler = createMcpHandler({ authenticate, storeFor });
+        const suggestNames = (await (await connect({ token: 'suggest-token', handler })).listTools()).tools.map(t => t.name);
+        expect(suggestNames).not.toContain('add_todo');
+        const { tools } = await (await connect({ token: 'change-token', handler })).listTools();
+        expect(tools.map(t => t.name)).toEqual(expect.arrayContaining(['add_todo', 'complete_todo', 'delete_todo', 'save_week_review']));
+        expect(tools.map(t => t.name)).not.toContain('propose_todo');
+        expect(tools.find(t => t.name === 'delete_todo').annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
+        expect(tools.find(t => t.name === 'add_todo').annotations).toMatchObject({ destructiveHint: false });
     });
 
     it('stops taking suggestions while too many are waiting', async () => {
@@ -201,5 +214,34 @@ describe('schema conversion and the Firestore store', () => {
         expect(await store.saveProposals([{ kind: 'todo' }])).toEqual(['id3']);
         expect(await store.pendingProposalCount()).toBe(1);
         expect(paths.every(p => p.startsWith('users/joe/'))).toBe(true);
+    });
+
+    it('changes to-dos by id, never overwrites an entry, and counts changes per day', async () => {
+        const calls = [];
+        const counts = new Map();
+        const ref = (path) => ({
+            path,
+            update: async (f) => calls.push(['update', path, f]),
+            delete: async () => calls.push(['delete', path]),
+            create: async (d) => calls.push(['create', path, d]),
+        });
+        const db = {
+            doc: ref,
+            runTransaction: async (fn) => fn({
+                get: async (r) => ({ get: () => counts.get(r.path) }),
+                set: (r, d) => counts.set(r.path, d.count),
+            }),
+        };
+        const store = createUserStore(db, 'joe', () => Date.parse('2026-11-14T07:00:00.000Z'));
+        await store.updateTodo('t1', { completed: true });
+        await store.deleteTodo('t2');
+        expect(await store.saveEntry({ date: '2026-11-14T07:00:00.000Z', content: 'x' })).toBe('2026-11-14T07:00:00.000Z');
+        expect(calls.map(c => [c[0], c[1]])).toEqual([
+            ['update', 'users/joe/todos/t1'], ['delete', 'users/joe/todos/t2'], ['create', 'users/joe/entries/2026-11-14T07:00:00.000Z'],
+        ]);
+        expect(await store.takeChange(2)).toBe(true);
+        expect(await store.takeChange(2)).toBe(true);
+        expect(await store.takeChange(2)).toBe(false);
+        expect([...counts.keys()]).toEqual(['gatewayUsage/mcpchanges_joe_2026-11-14']);
     });
 });

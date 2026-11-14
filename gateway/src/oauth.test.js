@@ -227,6 +227,11 @@ describe('the full flow', () => {
         expect(readOnly.body.scope).toBe('diary.read');
         const withSuggest = await exchange(oauth, (await getCode(oauth, { suggest: true })).code);
         expect(withSuggest.body.scope).toBe('diary.read diary.suggest');
+        const getCodeWith = async (extra) => (await oauth.authorize({ params: authParams(), idToken: 'id-joe', approved: true, ...extra })).body.redirect;
+        const withChange = await exchange(oauth, new URL(await getCodeWith({ change: true })).searchParams.get('code'));
+        expect(withChange.body.scope).toBe('diary.read diary.change');
+        const truthy = await exchange(oauth, new URL(await getCodeWith({ change: 'yes', suggest: 1 })).searchParams.get('code'));
+        expect(truthy.body.scope).toBe('diary.read');
     });
 
     it('accepts the token request as a form, as Claude sends it', async () => {

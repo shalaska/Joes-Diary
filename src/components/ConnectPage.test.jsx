@@ -51,7 +51,8 @@ describe('ConnectPage', () => {
         await mount(withUser(USER, <ConnectConsent params={PARAMS} navigate={vi.fn()} />));
         expect(host.textContent).toContain('Connect Claude Code to your diary?');
         expect(host.textContent).toContain('send you back to localhost');
-        expect(host.textContent).toContain('never edit, delete or tick off');
+        expect(host.textContent).toContain('never edit or delete what you wrote');
+        expect([...host.querySelectorAll('input[type=checkbox]')].map(c => c.checked)).toEqual([false, false]);
         expect(host.querySelector('input[type=checkbox]').checked).toBe(false);
     });
 
@@ -65,7 +66,7 @@ describe('ConnectPage', () => {
         await act(async () => host.querySelector('input[type=checkbox]').click());
         await act(async () => button('Allow').click());
         await flush();
-        expect(calls[1]).toEqual({ path: '/oauth/authorize', body: { params: PARAMS, idToken: 'id-token', approved: true, suggest: true } });
+        expect(calls[1]).toEqual({ path: '/oauth/authorize', body: { params: PARAMS, idToken: 'id-token', approved: true, suggest: true, change: false } });
         expect(navigate).toHaveBeenCalledWith('http://localhost:5000/callback?code=c&state=s');
     });
 
@@ -78,7 +79,7 @@ describe('ConnectPage', () => {
         await act(async () => host.querySelector('input[type=checkbox]').click());
         await act(async () => button('Deny').click());
         await flush();
-        expect(calls[1].body).toMatchObject({ approved: false, suggest: false });
+        expect(calls[1].body).toMatchObject({ approved: false, suggest: false, change: false });
     });
 
     it('shows the server\'s refusal for an account not on the allowlist', async () => {

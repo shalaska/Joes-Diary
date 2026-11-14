@@ -25,7 +25,7 @@ export const CLAUDE_REDIRECT_URIS = ['https://claude.ai/api/mcp/auth_callback', 
 export const CLAUDE_METADATA_HOSTS = ['claude.ai', 'claude.com'];
 const LOOPBACK_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 
-const ALL_SCOPES = [SCOPES.READ, SCOPES.SUGGEST];
+const ALL_SCOPES = [SCOPES.READ, SCOPES.SUGGEST, SCOPES.CHANGE];
 const MAX_BODY = 16 * 1024;
 
 export const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -192,15 +192,15 @@ export const createOAuth = ({ base, store, verifyIdToken, isAllowedUser, fetchCl
             client: { id: client.id, name: client.name },
             redirectUri,
             redirectHost: redirectHost(redirectUri),
-            // Read is always part of a connection. Suggestions are offered as a separate tickbox,
-            // whatever the client asked for, and are off unless the user ticks it.
+            // Read is always part of a connection. Suggesting and changing are offered as separate
+            // tickboxes, whatever the client asked for, and are off unless the user ticks them.
             scopes: [SCOPES.READ],
-            optionalScopes: [SCOPES.SUGGEST],
+            optionalScopes: [SCOPES.SUGGEST, SCOPES.CHANGE],
         };
     };
 
     // The user's answer on the consent page. idToken is their app sign-in.
-    const authorize = async ({ params = {}, idToken, approved, suggest } = {}) => {
+    const authorize = async ({ params = {}, idToken, approved, suggest, change } = {}) => {
         const check = await checkAuthorization(params);
         if (!check.ok) return check.redirect ? { status: 200, body: { redirect: check.redirect } } : oauthError(400, 'invalid_request', check.error);
 
@@ -220,7 +220,7 @@ export const createOAuth = ({ base, store, verifyIdToken, isAllowedUser, fetchCl
             return { status: 200, body: { redirect: withParams(check.redirectUri, { error: 'access_denied', state, iss: base }) } };
         }
 
-        const scopes = suggest === true ? [SCOPES.READ, SCOPES.SUGGEST] : [SCOPES.READ];
+        const scopes = [SCOPES.READ, ...(suggest === true ? [SCOPES.SUGGEST] : []), ...(change === true ? [SCOPES.CHANGE] : [])];
         const grantId = randomUUID();
         await store.saveGrant(grantId, {
             uid,
