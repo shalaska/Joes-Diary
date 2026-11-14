@@ -5,13 +5,18 @@
 // - The Gemini key lives in Secret Manager, never in the browser.
 // - The model version is pinned by config, and every call logs one metadata-only line.
 import { initializeApp } from 'firebase-admin/app';
+import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
 import { defineSecret, defineString } from 'firebase-functions/params';
-import { HttpsError, onCall } from 'firebase-functions/v2/https';
+import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 import { createAskHandler } from './src/agent.js';
+import { createConnectorHandler, sendWebResponse, toWebRequest } from './src/connector.js';
 import { createGeminiClient, createGeminiToolClient } from './src/gemini.js';
 import { createHandler, GatewayError } from './src/handler.js';
+import { createMcpHandler } from './src/mcp.js';
+import { createOAuth, fetchClientMetadata } from './src/oauth.js';
+import { createOAuthStore, createUserStore } from './src/store.js';
 
 initializeApp();
 
@@ -47,11 +52,12 @@ const DAILY_CALL_LIMIT = 300;
 
 const isAllowedUser = async (uid) => (await getFirestore().doc(`allowedUsers/${uid}`).get()).exists;
 
-// Cost guard: at most DAILY_CALL_LIMIT AI calls per user per UTC day. Counters live in
-// gatewayUsage/, which the Firestore rules deny to every client.
-const takeDailyQuota = async (uid) => {
+// Cost guard: at most DAILY_CALL_LIMIT calls per user per UTC day, counted separately for the
+// AI gateway and the MCP server (prefix). Counters live in gatewayUsage/, which the Firestore
+// rules deny to every client.
+const takeDailyQuota = async (uid, prefix = '') => {
     const day = new Date().toISOString().slice(0, 10);
-    const ref = getFirestore().doc(`gatewayUsage/${uid}_${day}`);
+    const ref = getFirestore().doc(`gatewayUsage/${prefix}${uid}_${day}`);
     return getFirestore().runTransaction(async (tx) => {
         const count = (await tx.get(ref)).get('count') || 0;
         if (count >= DAILY_CALL_LIMIT) return false;
@@ -77,21 +83,10 @@ export const llm = onCall({
     // scoped to users/{uid}. It cannot change them: its only write is a suggestion document in
     // users/{uid}/agentProposals, which the app shows for the user to add with one tap.
     if (request.data?.feature === 'ask') {
-        const db = getFirestore();
         const ask = createAskHandler({
             model: GEMINI_MODEL_ASK.value() || GEMINI_MODEL.value(),
             callTools: createGeminiToolClient({ apiKey: GEMINI_API_KEY.value(), timeoutMs: 25000, thinkingLevel: thinkingFor }),
-            store: {
-                entries: async () => (await db.collection(`users/${uid}/entries`).get()).docs.map(d => d.data()),
-                todos: async () => (await db.collection(`users/${uid}/todos`).get()).docs.map(d => d.data()),
-                saveProposals: async (proposals) => {
-                    const batch = db.batch();
-                    const refs = proposals.map(() => db.collection(`users/${uid}/agentProposals`).doc());
-                    refs.forEach((ref, i) => batch.set(ref, proposals[i]));
-                    await batch.commit();
-                    return refs.map(ref => ref.id);
-                },
-            },
+            store: createUserStore(getFirestore(), uid),
             allowedTiers: ['read', 'propose'],
             log: (entry) => logger.info('llm_call', entry),
         });
@@ -119,5 +114,50 @@ export const llm = onCall({
         if (error instanceof GatewayError) throw new HttpsError(error.code, error.message);
         logger.error('llm_gateway_unexpected', { name: error?.name });
         throw new HttpsError('internal', 'Gateway error');
+    }
+});
+
+// The diary as an MCP server for Claude (Phase 3), with its own OAuth sign-in server. Firebase
+// Hosting sends /mcp, /oauth/* and /.well-known/* on the diary's address here, so the server,
+// the sign-in endpoints and the consent page (/connect, in the app) share one address.
+// It never calls Gemini: the outside app's own model does the thinking.
+const DIARY_URL = 'https://joesdiary-d8211.web.app';
+
+let connector;
+const connectorHandler = () => {
+    if (connector) return connector;
+    const db = getFirestore();
+    const log = (entry) => logger.info('mcp_call', entry);
+    const oauth = createOAuth({
+        base: DIARY_URL,
+        store: createOAuthStore(db),
+        verifyIdToken: async (idToken) => (await getAuth().verifyIdToken(idToken, true)).uid,
+        isAllowedUser,
+        fetchClientMetadata,
+        log,
+    });
+    const mcpHandler = createMcpHandler({
+        authenticate: oauth.authenticate,
+        storeFor: (uid) => createUserStore(db, uid),
+        allowRequest: (uid) => takeDailyQuota(uid, 'mcp_'),
+        resourceMetadataUrl: `${DIARY_URL}/.well-known/oauth-protected-resource/mcp`,
+        log,
+    });
+    connector = createConnectorHandler({ oauth, mcp: mcpHandler });
+    return connector;
+};
+
+export const mcp = onRequest({
+    region: 'europe-west1',
+    maxInstances: 2,
+    timeoutSeconds: 30, // Claude wants a token answer within 10 s; tool calls only read Firestore
+    memory: '256MiB',
+    invoker: 'public', // Firebase Hosting rewrites need it; every route checks its own token
+}, async (req, res) => {
+    try {
+        await sendWebResponse(res, await connectorHandler()(toWebRequest(req, DIARY_URL)));
+    } catch (error) {
+        logger.error('mcp_unexpected', { name: error?.name });
+        res.status(500).set('Cache-Control', 'no-store').json({ error: 'server_error' });
     }
 });

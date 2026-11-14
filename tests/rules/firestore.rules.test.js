@@ -98,6 +98,30 @@ describe('gateway usage counters', () => {
     it('are invisible to every client, including the owner', async () => {
         await assertFails(getDoc(doc(asJoe(), 'gatewayUsage', `${JOE}_2026-11-09`)));
         await assertFails(setDoc(doc(asJoe(), 'gatewayUsage', `${JOE}_2026-11-09`), { count: 0 }));
+        await assertFails(getDoc(doc(asJoe(), 'gatewayUsage', `mcp_${JOE}_2026-11-09`)));
+    });
+});
+
+describe('connections to outside apps (MCP sign-in)', () => {
+    beforeEach(async () => {
+        await env.withSecurityRulesDisabled(async (context) => {
+            const db = context.firestore();
+            await setDoc(doc(db, 'mcpGrants', 'g1'), { uid: JOE, scopes: ['diary.read'] });
+            await setDoc(doc(db, 'mcpTokens', 'hash1'), { uid: JOE, grantId: 'g1', kind: 'access' });
+        });
+    });
+
+    it('are server-only: no client can read, create, widen or delete grants, codes, tokens or clients', async () => {
+        for (const db of [asJoe(), asStranger(), asAnonymous()]) {
+            await assertFails(getDoc(doc(db, 'mcpGrants', 'g1')));
+            await assertFails(getDocs(collection(db, 'mcpGrants')));
+            await assertFails(setDoc(doc(db, 'mcpGrants', 'g1'), { uid: JOE, scopes: ['diary.read', 'diary.suggest'] }));
+            await assertFails(deleteDoc(doc(db, 'mcpGrants', 'g1')));
+            await assertFails(getDoc(doc(db, 'mcpTokens', 'hash1')));
+            await assertFails(setDoc(doc(db, 'mcpTokens', 'hash2'), { uid: JOE, kind: 'access' }));
+            await assertFails(setDoc(doc(db, 'mcpCodes', 'c1'), { uid: JOE }));
+            await assertFails(setDoc(doc(db, 'mcpClients', 'x'), { redirectUris: ['https://evil.example'] }));
+        }
     });
 });
 
