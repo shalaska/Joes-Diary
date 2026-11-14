@@ -7,7 +7,8 @@ import { createAskHandler } from './agent.js';
 import { createGeminiClient, createGeminiToolClient } from './gemini.js';
 import { createHandler } from './handler.js';
 import { createMcpHandler, SCOPES } from './mcp.js';
-import { annotateSpan, createTokenSource, routeName, setUpTracing, traceRequest } from './tracing.js';
+import { annotateSpan, createTokenSource, routeName, setUpTracing, traceRequest, withSpan } from './tracing.js';
+import { trace } from '@opentelemetry/api';
 
 // A string that stands for diary text. It goes into every input, model reply and stored entry;
 // no span may ever carry it.
@@ -142,6 +143,28 @@ describe('live tracing', () => {
         await traceRequest(tracing, 'llm chat', {}, async () => annotateSpan({ feature: 'chat', outcome: 'ok', question: CANARY, inputSizes: { text: 12 }, tools: { [CANARY]: 1 } }));
         const [root] = await spans();
         expect(root.attributes).toEqual({ 'diary.feature': 'chat', 'diary.outcome': 'ok' });
+    });
+
+    it('scrubs spans from libraries that record error messages, like the Firestore client', async () => {
+        // What the Firestore client does on a failed read: its own span, the message as the status,
+        // an exception event and an event attribute holding the message.
+        await traceRequest(tracing, 'llm ask', {}, async () => {
+            const library = trace.getTracer('firestore');
+            const span = library.startSpan('Query.Get', { attributes: { 'gcp.firestore.settings.database_id': '(default)', doc_count: 3 } });
+            span.addEvent('Firestore.runQuery: Error.', { 'error.message': `NOT_FOUND users/u1/entries/${CANARY}`, transactional: false });
+            span.recordException(new Error(`users/u1/entries/${CANARY}`));
+            span.setStatus({ code: SpanStatusCode.ERROR, message: CANARY });
+            span.end();
+        });
+        await withSpan('after', {}, async () => {});
+        const list = await spans();
+
+        const query = byName(list, 'Query.Get');
+        expect(query.status).toEqual({ code: SpanStatusCode.ERROR });
+        expect(query.attributes).toEqual({ 'gcp.firestore.settings.database_id': '(default)', doc_count: 3 });
+        expect(query.events.map(e => [e.name, e.attributes])).toEqual([['Firestore.runQuery: Error.', { transactional: false }]]);
+        expect(query.spanContext().spanId).toMatch(/^[0-9a-f]{16}$/);
+        expect(everything(list)).not.toContain('CANARY');
     });
 
     it('names routes from a fixed list', () => {

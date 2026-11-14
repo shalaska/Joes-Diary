@@ -9,8 +9,9 @@
 // Privacy: diary text never goes into a span. Span attributes come from fixed names and from
 // the metadata the gateway already logs (feature, model, outcome, token counts, tool names,
 // latency), filtered through SAFE_LOG_FIELDS. Errors keep only their class name, never their
-// message, and no exception events are recorded. tracing.test.js checks this with a
-// canary string in every input, output and tool result.
+// message, and no exception events are recorded. Spans from libraries (the Firestore client
+// traces itself) are scrubbed on export by scrubSpan. tracing.test.js checks all of this with a
+// canary string in every input, output, tool result and library error.
 import { SpanKind, SpanStatusCode, trace } from '@opentelemetry/api';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { resourceFromAttributes } from '@opentelemetry/resources';
@@ -138,6 +139,26 @@ export const createTokenSource = ({ fetchImpl = fetch, now = Date.now } = {}) =>
     };
 };
 
+// Libraries trace themselves too once an SDK is set up: the Firestore client adds a span for
+// every read and write. Their spans are useful (they show where the time goes) but follow their
+// own rules: on an error they record its message and an exception event, and a message can name
+// a document. So every span is scrubbed on its way out, ours and theirs alike, the way an
+// OpenTelemetry Collector's redaction processor would: no exception events, no status message,
+// no string values on events, no attribute whose name mentions a message or an exception.
+const UNSAFE_ATTRIBUTE = /message|exception|stack/i;
+const keepSafe = (attributes = {}) => Object.fromEntries(Object.entries(attributes)
+    .filter(([key]) => !UNSAFE_ATTRIBUTE.test(key)));
+export const scrubSpan = (span) => Object.create(span, {
+    status: { value: { code: span.status.code }, enumerable: true },
+    attributes: { value: keepSafe(span.attributes), enumerable: true },
+    events: {
+        value: span.events
+            .filter(event => !event.name.startsWith('exception'))
+            .map(event => ({ ...event, attributes: Object.fromEntries(Object.entries(keepSafe(event.attributes)).filter(([, v]) => typeof v !== 'string')) })),
+        enumerable: true,
+    },
+});
+
 /**
  * Sets up the SDK for this instance and returns { flush() }. Call it once, at cold start.
  * projectId: the Google Cloud project, which Cloud Trace requires as gcp.project_id.
@@ -151,7 +172,7 @@ export const setUpTracing = ({ projectId, exporter = null, getToken = createToke
         timeoutMillis: 3000,
     });
     const reporting = {
-        export: (spans, done) => otlp.export(spans, (result) => {
+        export: (spans, done) => otlp.export(spans.map(scrubSpan), (result) => {
             if (result.code !== 0) onExportError(errorType(result.error), Number.isInteger(result.error?.code) ? result.error.code : null);
             done(result);
         }),
