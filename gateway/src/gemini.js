@@ -1,3 +1,5 @@
+import { traceGenerate } from './tracing.js';
+
 // Minimal Gemini REST client. Uses fetch only, so it runs in Cloud Functions (Node 22)
 // and is trivial to fake in tests.
 
@@ -12,7 +14,7 @@ export class ModelError extends Error {
     }
 }
 
-const generate = async ({ apiKey, fetchImpl, timeoutMs, model, body }) => {
+const request = async ({ apiKey, fetchImpl, timeoutMs, model, body }) => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response;
@@ -52,6 +54,9 @@ const generate = async ({ apiKey, fetchImpl, timeoutMs, model, body }) => {
         modelVersion: json.modelVersion || model,
     };
 };
+
+// Each call is a span when tracing is on (model, tokens, finish reason; never the text).
+const generate = (args) => traceGenerate(args.model, () => request(args));
 
 const textOf = (content) => (content.parts || []).map(part => part.text || '').join('');
 
