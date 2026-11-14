@@ -32,6 +32,7 @@ const memoryStore = () => {
         getToken: async (hash) => t.tokens.get(hash) ?? null,
         useToken: async (hash) => markUsed(t.tokens, hash),
         getGrant: async (id) => t.grants.get(id) ?? null,
+        listGrants: async (uid) => [...t.grants].filter(([, g]) => g.uid === uid).map(([id, g]) => ({ id, ...g })),
         saveGrant: async (id, doc) => { t.grants.set(id, doc); },
         updateGrant: async (id, fields) => {
             if (!t.grants.has(id)) throw new Error('NOT_FOUND');
@@ -372,6 +373,52 @@ describe('tokens', () => {
         expect(logged).not.toContain(tokens.access_token);
         expect(logged).not.toContain(tokens.refresh_token);
         expect(logged).not.toContain('joe');
+    });
+});
+
+describe('connected apps in Settings', () => {
+    it('lists only the signed-in user\'s live connections, newest use first, without tokens', async () => {
+        const ctx = setup({ allowed: ['joe', 'karin'] });
+        await exchange(ctx.oauth, (await getCode(ctx.oauth)).code);
+        ctx.clock.t += 60_000;
+        await exchange(ctx.oauth, (await getCode(ctx.oauth, { suggest: true })).code);
+        await getCode(ctx.oauth, { idToken: 'id-karin' });
+
+        const { status, body } = await ctx.oauth.listConnections({ idToken: 'id-joe' });
+        expect(status).toBe(200);
+        expect(body.connections).toHaveLength(2);
+        expect(body.connections[0]).toMatchObject({ clientName: 'Claude Code', redirectHost: 'localhost', scopes: ['diary.read', 'diary.suggest'] });
+        expect(Object.keys(body.connections[0]).sort()).toEqual(['clientName', 'createdAt', 'id', 'lastUsedAt', 'redirectHost', 'scopes']);
+
+        ctx.clock.t += 31 * 864e5;
+        expect((await ctx.oauth.listConnections({ idToken: 'id-joe' })).body.connections).toEqual([]);
+    });
+
+    it('refuses a stranger or a missing sign-in', async () => {
+        const { oauth } = setup();
+        expect((await oauth.listConnections({ idToken: 'id-stranger' })).status).toBe(401);
+        expect((await oauth.listConnections({})).status).toBe(401);
+    });
+
+    it('revokes a connection so Claude must connect again, and only the owner\'s', async () => {
+        const ctx = setup({ allowed: ['joe', 'karin'] });
+        const tokens = (await exchange(ctx.oauth, (await getCode(ctx.oauth)).code)).body;
+        const [{ id }] = (await ctx.oauth.listConnections({ idToken: 'id-joe' })).body.connections;
+
+        expect((await ctx.oauth.revokeConnection({ idToken: 'id-karin', id })).status).toBe(404);
+        expect(await ctx.oauth.authenticate(bearer(tokens.access_token))).not.toBeNull();
+
+        expect((await ctx.oauth.revokeConnection({ idToken: 'id-joe', id })).body).toEqual({ revoked: true });
+        expect(await ctx.oauth.authenticate(bearer(tokens.access_token))).toBeNull();
+        expect((await ctx.oauth.token({ grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: CIMD_URL })).body.error).toBe('invalid_grant');
+        expect((await ctx.oauth.listConnections({ idToken: 'id-joe' })).body.connections).toEqual([]);
+    });
+
+    it('is reachable over HTTP as JSON', async () => {
+        const { oauth } = setup();
+        const handler = createConnectorHandler({ oauth, mcp: async () => null });
+        const response = await handler(new Request(`${BASE}/oauth/connections`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idToken: 'id-joe' }) }));
+        expect(await response.json()).toEqual({ connections: [] });
     });
 });
 
