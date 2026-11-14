@@ -42,6 +42,9 @@ on:
         description: 'Spend limit for the run in EUR (per model in a bake-off). The run stops and fails when it gets there.'
         required: false
         default: '1.00'
+      experiment:
+        description: 'Prompt experiment instead: a name from evals/experiments.js, e.g. chat-tone. Results go to Arize to compare.'
+        required: false
 
 permissions:
   contents: read
@@ -97,7 +100,7 @@ jobs:
       # The key is read from Secret Manager, masked, and only exists inside these steps.
       # The judge is checked on manual runs, and on pull requests that change the judge.
       - name: Check the judge against the hand labels
-        if: inputs.bakeoff == '' && (github.event_name == 'workflow_dispatch' || steps.suites.outputs.calibrate == 'true')
+        if: inputs.bakeoff == '' && inputs.experiment == '' && (github.event_name == 'workflow_dispatch' || steps.suites.outputs.calibrate == 'true')
         env:
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model || env.DEFAULT_JUDGE_MODEL }}
           EVAL_CALIBRATE: '1'
@@ -111,7 +114,7 @@ jobs:
           GEMINI_API_KEY="$GEMINI_API_KEY" node evals/run.js
 
       - name: Run the evals
-        if: inputs.bakeoff == '' && steps.suites.outputs.skip != 'true'
+        if: inputs.bakeoff == '' && inputs.experiment == '' && steps.suites.outputs.skip != 'true'
         env:
           EVAL_FEATURES: ${{ steps.suites.outputs.features || inputs.features }}
           EVAL_THINKING: ${{ inputs.thinking }}
@@ -132,6 +135,30 @@ jobs:
           GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
           echo "::add-mask::$GEMINI_API_KEY"
           GEMINI_API_KEY="$GEMINI_API_KEY" node evals/run.js
+
+      # Same cases and judge, one run per variant, then each variant goes to Arize as an
+      # experiment on a dataset of the cases, to compare side by side (evals/arizeExperiments.js).
+      - name: Prompt experiment
+        if: inputs.experiment != ''
+        env:
+          EXPERIMENT: ${{ inputs.experiment }}
+          EVAL_JUDGE_MODEL: ${{ inputs.judge_model || env.DEFAULT_JUDGE_MODEL }}
+          EVAL_MAX_COST_EUR: ${{ inputs.max_cost || '1.00' }}
+          OUT: ${{ runner.temp }}/experiment
+          ARIZE_API_KEY: ${{ secrets.ARIZE_API_KEY }}
+          ARIZE_SPACE_ID: ${{ secrets.ARIZE_SPACE_ID }}
+          ARIZE_REGION: ${{ vars.ARIZE_REGION || 'eu-west-1a' }}
+        run: |
+          GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
+          echo "::add-mask::$GEMINI_API_KEY"
+          export GEMINI_API_KEY
+          REPEATS=$(node -e "import('./evals/experiments.js').then(m => console.log(m.EXPERIMENTS[process.argv[1]].repeats || 1))" "$EXPERIMENT")
+          for VARIANT in $(node -e "import('./evals/experiments.js').then(m => console.log(m.EXPERIMENTS[process.argv[1]].variants.map(v => v.name).join(' ')))" "$EXPERIMENT"); do
+            echo "::group::$VARIANT"
+            EVAL_EXPERIMENT="$EXPERIMENT" EVAL_VARIANT="$VARIANT" EVAL_REPEATS="$REPEATS" EVAL_OUT="$OUT/$VARIANT" node evals/run.js
+            echo "::endgroup::"
+          done
+          node evals/arizeExperiments.js "$EXPERIMENT" "$OUT"
 
       # Same cases, same judge, one run per model, then one comparison table.
       - name: Model bake-off
