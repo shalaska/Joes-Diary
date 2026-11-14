@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { InMemorySpanExporter } from '@opentelemetry/sdk-trace-node';
-import { arizeHeaders, createEvalTracing, PROJECT, traceCase, traceJudge, traceModel } from './tracing.js';
+import { arizeEndpoint, arizeHeaders, createEvalTracing, PROJECT, traceCase, traceJudge, traceModel } from './tracing.js';
 
 const fakeModel = (reply) => async () => ({ text: reply, usage: { inputTokens: 120, outputTokens: 30, thinkingTokens: 10 }, modelVersion: 'gemini-test-001' });
 
@@ -18,8 +18,10 @@ describe('eval tracing', () => {
         expect(await traceCase(tracing, { feature: 'edit', caseId: 'c1', run: 1, input: {} }, async () => ({ pass: true }))).toEqual({ pass: true });
     });
 
-    it('sends the space id and key in both spellings Arize documents', () => {
-        expect(arizeHeaders({ ARIZE_API_KEY: 'k', ARIZE_SPACE_ID: 's' })).toEqual({ space_id: 's', api_key: 'k', 'arize-space-id': 's', 'arize-api-key': 'k' });
+    it('sends the space id and key as Arize documents, to the space\'s region', () => {
+        expect(arizeHeaders({ ARIZE_API_KEY: 'k', ARIZE_SPACE_ID: 's' })).toEqual({ space_id: 's', api_key: 'k' });
+        expect(arizeEndpoint()).toBe('https://otlp.arize.com/v1/traces');
+        expect(arizeEndpoint('eu-west-1a')).toBe('https://otlp.eu-west-1a.arize.com/v1/traces');
     });
 
     it('makes each case a root span with its model call, checks and judge nested under it', async () => {

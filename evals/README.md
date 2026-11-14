@@ -91,7 +91,8 @@ is set), and the run summary ends with one comparison table (`evals/bakeoff.js`)
 
 ## Traces in Arize
 
-With the `ARIZE_API_KEY` and `ARIZE_SPACE_ID` repository secrets set, every eval run is also
+With the `ARIZE_API_KEY` and `ARIZE_SPACE_ID` repository secrets set (and the `ARIZE_REGION`
+repository variable, e.g. `eu-west-1a`, for a space outside the US), every eval run is also
 sent to Arize (project `joes-diary-evals`) as OpenTelemetry traces, using the OpenInference
 conventions. `evals/tracing.js` builds them:
 

@@ -103,6 +103,7 @@ jobs:
           EVAL_CALIBRATE: '1'
           ARIZE_API_KEY: ${{ secrets.ARIZE_API_KEY }}
           ARIZE_SPACE_ID: ${{ secrets.ARIZE_SPACE_ID }}
+          ARIZE_REGION: ${{ vars.ARIZE_REGION }}
           EVAL_OUT: ${{ runner.temp }}/eval-results
         run: |
           GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
@@ -126,6 +127,7 @@ jobs:
           # Only the steps that run evals get these; without them tracing stays off.
           ARIZE_API_KEY: ${{ secrets.ARIZE_API_KEY }}
           ARIZE_SPACE_ID: ${{ secrets.ARIZE_SPACE_ID }}
+          ARIZE_REGION: ${{ vars.ARIZE_REGION }}
         run: |
           GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
           echo "::add-mask::$GEMINI_API_KEY"
@@ -143,6 +145,7 @@ jobs:
           OUT: ${{ runner.temp }}/eval-results
           ARIZE_API_KEY: ${{ secrets.ARIZE_API_KEY }}
           ARIZE_SPACE_ID: ${{ secrets.ARIZE_SPACE_ID }}
+          ARIZE_REGION: ${{ vars.ARIZE_REGION }}
         run: |
           GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
           echo "::add-mask::$GEMINI_API_KEY"
