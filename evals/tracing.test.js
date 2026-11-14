@@ -78,4 +78,11 @@ describe('eval tracing', () => {
         expect(spans['gemini under test'].status).toMatchObject({ code: 2, message: 'Model returned HTTP 500' });
         expect(spans['check gateway_ok'].attributes['evaluation.label']).toBe('fail');
     });
+
+    it('reports a rejected export in the log line instead of failing the eval run', async () => {
+        const failing = { export: (spans, done) => done({ code: 1, error: new Error('Forbidden') }), shutdown: async () => { throw new Error('Forbidden'); } };
+        const tracing = createEvalTracing({ exporter: failing, env: {} });
+        await traceCase(tracing, { feature: 'edit', caseId: 'c1', run: 1, input: {} }, async () => ({ pass: true, output: 'x', checks: [] }));
+        await expect(tracing.shutdown()).resolves.toMatch(/failed: Forbidden/);
+    });
 });

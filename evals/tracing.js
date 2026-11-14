@@ -34,6 +34,12 @@ export const arizeHeaders = ({ ARIZE_API_KEY, ARIZE_SPACE_ID }) => ({
     'arize-api-key': ARIZE_API_KEY,
 });
 
+// "Forbidden: invalid Space ID": the OTLP error's message plus the readable part of the reply.
+const describeError = (error) => {
+    const detail = String(error?.data ?? '').replace(/[^\x20-\x7e]/g, '').trim();
+    return [error?.message || 'export failed', detail].filter(Boolean).join(': ');
+};
+
 // Counts what the exporter sent and what failed, so the CI log says whether Arize took the spans.
 const countingExporter = (inner) => {
     const stats = { spans: 0, failures: 0, lastError: '' };
@@ -41,7 +47,7 @@ const countingExporter = (inner) => {
         stats,
         export: (spans, done) => inner.export(spans, (result) => {
             if (result.code === 0) stats.spans += spans.length;
-            else { stats.failures += 1; stats.lastError = result.error?.message || 'export failed'; }
+            else { stats.failures += 1; stats.lastError = describeError(result.error); }
             done(result);
         }),
         shutdown: () => inner.shutdown(),
@@ -70,8 +76,14 @@ export const createEvalTracing = ({ env = process.env, exporter = null, now = Da
         enabled: true,
         tracer: provider.getTracer(PROJECT),
         sessionId: env.GITHUB_RUN_ID ? `gh-${env.GITHUB_RUN_ID}` : `local-${now()}`,
+        // Never throws: a tracing problem is reported in the log but never fails the eval run.
         shutdown: async () => {
-            await provider.shutdown();
+            try {
+                await provider.shutdown();
+            } catch (error) {
+                counted.stats.failures += 1;
+                counted.stats.lastError = describeError(error);
+            }
             const { spans, failures, lastError } = counted.stats;
             return failures ? `Arize: ${spans} spans sent, ${failures} export(s) failed: ${lastError}` : `Arize: ${spans} spans sent to project ${PROJECT}.`;
         },
