@@ -27,6 +27,7 @@ import { compareToBaseline, gateMarkdown, toBaseline } from './gate.js';
 import { FEATURES } from '../gateway/src/features.js';
 import { listModels } from './models.js';
 import { costMarkdown, createMeter } from './pricing.js';
+import { createEvalTracing, traceCase, traceJudge, traceModel } from './tracing.js';
 
 const CONCURRENCY = 4;
 
@@ -91,17 +92,21 @@ const main = async () => {
     const thinkingLevel = (m) => (m === model ? level : '');
     // Every model call goes through the meter, so the run can say what it cost and stop at a limit.
     const meter = createMeter();
+    // With the Arize secrets set, each case also goes to Arize as a trace (evals/tracing.js).
+    const tracing = createEvalTracing();
+    const traced = (client, purpose) => (tracing.enabled ? traceModel(client, tracing.tracer, purpose) : client);
     const limitEur = process.env.EVAL_MAX_COST_EUR ? Number(process.env.EVAL_MAX_COST_EUR) : null;
     const plain = createGeminiClient({ apiKey, timeoutMs: 60000 });
-    const callJudge = meter.wrap(plain, process.env.EVAL_CALIBRATE === '1' ? 'judge calibration' : 'judge');
-    const callFeature = meter.wrap(level ? createGeminiClient({ apiKey, timeoutMs: 60000, thinkingLevel }) : plain, 'under test');
-    const callTools = meter.wrap(createGeminiToolClient({ apiKey, timeoutMs: 60000, thinkingLevel }), 'under test');
+    const callJudge = meter.wrap(traced(plain, 'judge'), process.env.EVAL_CALIBRATE === '1' ? 'judge calibration' : 'judge');
+    const callFeature = meter.wrap(traced(level ? createGeminiClient({ apiKey, timeoutMs: 60000, thinkingLevel }) : plain, 'under test'), 'under test');
+    const callTools = meter.wrap(traced(createGeminiToolClient({ apiKey, timeoutMs: 60000, thinkingLevel }), 'under test'), 'under test');
     const useJudge = process.env.EVAL_JUDGE !== '0';
     const judgeModel = process.env.EVAL_JUDGE_MODEL || (useJudge || process.env.EVAL_CALIBRATE === '1' ? await chooseJudgeModel(apiKey, callJudge, model) : null);
     const judge = useJudge ? createJudge({ callModel: callJudge, model: judgeModel }) : null;
 
     if (process.env.EVAL_CALIBRATE === '1') {
         await calibrate(createJudge({ callModel: callJudge, model: judgeModel }), judgeModel, outDir, meter);
+        if (tracing.enabled) console.log(await tracing.shutdown());
         return;
     }
 
@@ -111,7 +116,7 @@ const main = async () => {
     for (const suite of suites) {
         for (const testCase of suite.cases) {
             for (let run = 1; run <= (suite.makeHandler ? agentRepeats : repeats); run++) {
-                jobs.push(async () => {
+                jobs.push(() => traceCase(tracing, { feature: suite.feature, caseId: testCase.id, run, input: suite.input(testCase), model: featureModels[suite.feature] || model }, async () => {
                     if (limitEur !== null && meter.totalEur() >= limitEur) {
                         stopped += 1;
                         return {
@@ -139,7 +144,7 @@ const main = async () => {
                         : [{ name: 'gateway_ok', pass: false, detail: [logEntry?.outcome ?? 'no log', errorMessage].filter(Boolean).join(': ') }];
                     let judged = null;
                     if (judge && answered) {
-                        judged = await judge(suite.feature, (suite.judgeInput || suite.input)(testCase, output), output)
+                        judged = await traceJudge(tracing, () => judge(suite.feature, (suite.judgeInput || suite.input)(testCase, output), output))
                             .catch(error => ({ error: error.message }));
                         // A judge failure is reported, but never counted against the model under test.
                         if (judged && !judged.error) checks.push({ name: 'judge', pass: judged.pass, detail: `${Object.entries(judged.scores).map(([k, v]) => `${k} ${v}`).join(', ')}. ${judged.reason}` });
@@ -152,12 +157,14 @@ const main = async () => {
                         modelVersion: logEntry?.modelVersion, promptVersion: logEntry?.promptVersion,
                         pass: checks.every(c => c.pass), checks, output, judge: judged,
                     };
-                });
+                }));
             }
         }
     }
 
     const results = await runPool(jobs, CONCURRENCY);
+    // Flush the traces before anything below can exit the process.
+    if (tracing.enabled) console.log(await tracing.shutdown());
     const modelLabel = Object.keys(featureModels).length
         ? `${model} (${Object.entries(featureModels).map(([f, m]) => `${f}: ${m}`).join(', ')})`
         : model;

@@ -101,6 +101,8 @@ jobs:
         env:
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model || env.DEFAULT_JUDGE_MODEL }}
           EVAL_CALIBRATE: '1'
+          ARIZE_API_KEY: ${{ secrets.ARIZE_API_KEY }}
+          ARIZE_SPACE_ID: ${{ secrets.ARIZE_SPACE_ID }}
           EVAL_OUT: ${{ runner.temp }}/eval-results
         run: |
           GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
@@ -120,6 +122,10 @@ jobs:
           # A harness-only check (gate=false from pickSuites) is not a quality run, so it is not gated.
           EVAL_GATE: ${{ ((github.event_name == 'pull_request' && steps.suites.outputs.gate != 'false') || inputs.gate) && '1' || '0' }}
           EVAL_OUT: ${{ runner.temp }}/eval-results
+          # Each case also goes to Arize as a trace (evals/tracing.js). Synthetic data only.
+          # Only the steps that run evals get these; without them tracing stays off.
+          ARIZE_API_KEY: ${{ secrets.ARIZE_API_KEY }}
+          ARIZE_SPACE_ID: ${{ secrets.ARIZE_SPACE_ID }}
         run: |
           GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
           echo "::add-mask::$GEMINI_API_KEY"
@@ -135,6 +141,8 @@ jobs:
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model || env.DEFAULT_JUDGE_MODEL }}
           EVAL_REPEATS: ${{ inputs.repeats || '3' }}
           OUT: ${{ runner.temp }}/eval-results
+          ARIZE_API_KEY: ${{ secrets.ARIZE_API_KEY }}
+          ARIZE_SPACE_ID: ${{ secrets.ARIZE_SPACE_ID }}
         run: |
           GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")
           echo "::add-mask::$GEMINI_API_KEY"
