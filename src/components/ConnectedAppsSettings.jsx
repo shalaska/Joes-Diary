@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Check, Copy, Plug, Trash2 } from 'lucide-react';
 import { useAuth } from '../contexts/authContext';
+import ClaudeTrash from './ClaudeTrash';
 
 // "Connected apps" (Phase 3): outside AI apps the user has let read the diary, such as Claude,
 // with Revoke. The list and revoke go to the diary's sign-in server, which keeps connections
@@ -19,7 +20,7 @@ const postJson = async (path, body) => {
     return data;
 };
 
-const ConnectedAppsSettings = () => {
+const ConnectedAppsSettings = ({ onRestoreTodo }) => {
     const currentUser = useAuth()?.currentUser;
     const [connections, setConnections] = useState(null);
     const [error, setError] = useState('');
@@ -114,6 +115,8 @@ const ConnectedAppsSettings = () => {
                     ))}
                 </ul>
             )}
+
+            <ClaudeTrash uid={currentUser?.uid} onRestored={onRestoreTodo} />
         </div>
     );
 };

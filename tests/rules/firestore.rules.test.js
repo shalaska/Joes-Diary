@@ -46,6 +46,8 @@ describe('owner access', () => {
         await assertSucceeds(setDoc(doc(db, 'users', JOE, 'todos', 't1'), { text: 'x' }));
         await assertSucceeds(setDoc(doc(db, 'users', JOE, 'dayMetadata', 'd1'), { sortIndex: 1 }));
         await assertSucceeds(deleteDoc(doc(db, 'users', JOE, 'trash', '2026-11-09')));
+        await assertSucceeds(getDocs(collection(db, 'users', JOE, 'todoTrash')));
+        await assertSucceeds(deleteDoc(doc(db, 'users', JOE, 'todoTrash', 't1')));
     });
 
     it('lets the owner read and answer the agent\'s suggestions', async () => {
@@ -59,6 +61,11 @@ describe('other users', () => {
     it('cannot read another user\'s entries', async () => {
         await assertFails(getDoc(doc(asStranger(), 'users', JOE, 'entries', '2026-11-09')));
         await assertFails(getDocs(collection(asStranger(), 'users', JOE, 'entries')));
+    });
+
+    it('cannot see or restore another user\'s deleted to-dos', async () => {
+        await assertFails(getDocs(collection(asStranger(), 'users', JOE, 'todoTrash')));
+        await assertFails(setDoc(doc(asStranger(), 'users', JOE, 'todos', 't1'), { text: 'x' }));
     });
 
     it('cannot read or plant suggestions in another user\'s diary', async () => {

@@ -22,6 +22,25 @@ export const createUserStore = (db, uid, now = () => Date.now()) => {
         },
         updateTodo: async (id, fields) => { await db.doc(`${base}/todos/${id}`).update(fields); },
         deleteTodo: async (id) => { await db.doc(`${base}/todos/${id}`).delete(); },
+        // Claude's deletes go to todoTrash first, so the user can restore them for a while.
+        trashTodo: async (todo, meta) => {
+            const batch = db.batch();
+            batch.set(db.doc(`${base}/todoTrash/${todo.id}`), { todo, ...meta });
+            batch.delete(db.doc(`${base}/todos/${todo.id}`));
+            await batch.commit();
+        },
+        trashedTodos: async () => (await db.collection(`${base}/todoTrash`).get()).docs.map(d => ({ ...d.data(), id: d.id })),
+        restoreTodo: async (id) => {
+            const ref = db.doc(`${base}/todoTrash/${id}`);
+            const snapshot = await ref.get();
+            if (!snapshot.exists) return null;
+            const { todo } = snapshot.data();
+            const batch = db.batch();
+            batch.set(db.doc(`${base}/todos/${id}`), todo);
+            batch.delete(ref);
+            await batch.commit();
+            return todo;
+        },
         // Counts Claude's changes per UTC day in a server-only counter; false once at the limit.
         takeChange: (limit) => {
             const ref = db.doc(`gatewayUsage/mcpchanges_${uid}_${new Date(now()).toISOString().slice(0, 10)}`);

@@ -122,7 +122,7 @@ describe('MCP server', () => {
         const suggestNames = (await (await connect({ token: 'suggest-token', handler })).listTools()).tools.map(t => t.name);
         expect(suggestNames).not.toContain('add_todo');
         const { tools } = await (await connect({ token: 'change-token', handler })).listTools();
-        expect(tools.map(t => t.name)).toEqual(expect.arrayContaining(['add_todo', 'complete_todo', 'delete_todo', 'save_week_review']));
+        expect(tools.map(t => t.name)).toEqual(expect.arrayContaining(['add_todo', 'complete_todo', 'delete_todo', 'restore_todo', 'save_week_review']));
         expect(tools.map(t => t.name)).not.toContain('propose_todo');
         expect(tools.find(t => t.name === 'delete_todo').annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
         expect(tools.find(t => t.name === 'add_todo').annotations).toMatchObject({ destructiveHint: false });
@@ -243,5 +243,28 @@ describe('schema conversion and the Firestore store', () => {
         expect(await store.takeChange(2)).toBe(true);
         expect(await store.takeChange(2)).toBe(false);
         expect([...counts.keys()]).toEqual(['gatewayUsage/mcpchanges_joe_2026-11-14']);
+    });
+
+    it('moves a deleted to-do to the trash and restores it from there, in one batch each', async () => {
+        const docs = new Map([['users/joe/todos/t1', { id: 't1', text: 'Book dentist' }]]);
+        const ref = (path) => ({ path, get: async () => ({ exists: docs.has(path), data: () => docs.get(path) }) });
+        const db = {
+            doc: ref,
+            batch: () => {
+                const ops = [];
+                return {
+                    set: (r, d) => ops.push(() => docs.set(r.path, d)),
+                    delete: (r) => ops.push(() => docs.delete(r.path)),
+                    commit: async () => ops.forEach(op => op()),
+                };
+            },
+        };
+        const store = createUserStore(db, 'joe');
+        await store.trashTodo({ id: 't1', text: 'Book dentist' }, { deletedBy: 'claude', expiresAt: 1 });
+        expect([...docs.keys()]).toEqual(['users/joe/todoTrash/t1']);
+        expect(docs.get('users/joe/todoTrash/t1')).toEqual({ todo: { id: 't1', text: 'Book dentist' }, deletedBy: 'claude', expiresAt: 1 });
+        expect(await store.restoreTodo('t1')).toEqual({ id: 't1', text: 'Book dentist' });
+        expect([...docs.keys()]).toEqual(['users/joe/todos/t1']);
+        expect(await store.restoreTodo('t1')).toBeNull();
     });
 });

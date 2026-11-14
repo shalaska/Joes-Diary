@@ -3,6 +3,8 @@ import React, { act } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createRoot } from 'react-dom/client';
 import { AuthContext } from '../contexts/authContext';
+
+vi.mock('./ClaudeTrash', () => ({ default: () => null }));
 import ConnectedAppsSettings from './ConnectedAppsSettings';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

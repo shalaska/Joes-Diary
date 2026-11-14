@@ -2,7 +2,8 @@
 // does the thinking (a week's analysis, a nudge to write), so none of these call Gemini.
 //
 // - list_todos (with ids), read_week, diary_status: read permission.
-// - add_todo, complete_todo, delete_todo, save_week_review: the separate "change" permission.
+// - add_todo, complete_todo, delete_todo, restore_todo, save_week_review: the separate "change" permission.
+//   delete_todo moves the to-do to users/{uid}/todoTrash for TRASH_DAYS, where the app can restore it.
 //   They touch to-dos and week reviews only. No tool edits or deletes what the user wrote in
 //   the diary. Everything Claude adds carries source: 'claude', and the app marks it "by Claude".
 import { dayOf } from './agent.js';
@@ -10,6 +11,7 @@ import { dayOf } from './agent.js';
 export const TIME_ZONE = 'Europe/London';
 // Changes Claude may make in a day, so a runaway loop cannot rewrite the to-do list.
 export const MAX_CHANGES_PER_DAY = 30;
+export const TRASH_DAYS = 7;
 const WEEK_CHARS = 60000;
 const TODO_CHARS = 300;
 const REVIEW_CHARS = 8000;
@@ -73,12 +75,16 @@ export const createMcpTools = ({ store, now = () => Date.now(), timeZone = TIME_
 
     const read = {
         list_todos: {
-            description: 'The to-do list with priorities and ids (the ids are for complete_todo and delete_todo).',
+            description: `The to-do list with priorities and ids (the ids are for complete_todo, delete_todo and restore_todo). status "deleted" lists to-dos Claude deleted in the last ${TRASH_DAYS} days.`,
             parameters: {
                 type: 'OBJECT',
-                properties: { status: { type: 'STRING', enum: ['open', 'done', 'all'], description: 'Default open' } },
+                properties: { status: { type: 'STRING', enum: ['open', 'done', 'all', 'deleted'], description: 'Default open' } },
             },
             run: async ({ status = 'open' }) => {
+                if (status === 'deleted') {
+                    const trashed = (await store.trashedTodos()).filter(t => t.expiresAt > now());
+                    return { todos: trashed.map(t => ({ id: t.id, text: `<todo>${stripMarkup(t.todo?.text)}</todo>`, deletedAt: t.deletedAt })) };
+                }
                 const todos = (await store.todos())
                     .filter(t => status === 'all' || (status === 'done' ? t.completed : !t.completed))
                     .sort((a, b) => (b.sortIndex || 0) - (a.sortIndex || 0))
@@ -194,7 +200,7 @@ export const createMcpTools = ({ store, now = () => Date.now(), timeZone = TIME_
             },
         },
         delete_todo: {
-            description: 'Delete a to-do for good. Take the id from list_todos. Use it only when the user asks to remove a to-do; if they say it is done, use complete_todo instead.',
+            description: `Delete a to-do. Take the id from list_todos. Use it only when the user asks to remove a to-do; if they say it is done, use complete_todo instead. The user can restore it for ${TRASH_DAYS} days.`,
             parameters: {
                 type: 'OBJECT',
                 properties: { id: { type: 'STRING', description: 'The to-do\'s id from list_todos' } },
@@ -204,8 +210,24 @@ export const createMcpTools = ({ store, now = () => Date.now(), timeZone = TIME_
                 const todo = await todoById(id);
                 if (!todo) return { error: 'No to-do has that id. Call list_todos for the ids.' };
                 if (!(await store.takeChange(MAX_CHANGES_PER_DAY))) return overLimit;
-                await store.deleteTodo(todo.id);
-                return { deleted: true, text: `<todo>${stripMarkup(todo.text)}</todo>` };
+                const deletedAt = new Date(now()).toISOString();
+                await store.trashTodo(todo, { deletedAt, deletedBy: 'claude', expiresAt: now() + TRASH_DAYS * DAY_MS });
+                return { deleted: true, text: `<todo>${stripMarkup(todo.text)}</todo>`, note: `It can be restored for ${TRASH_DAYS} days, in the diary's Settings or with restore_todo.` };
+            },
+        },
+        restore_todo: {
+            description: `Bring back a to-do Claude deleted in the last ${TRASH_DAYS} days. Take the id from list_todos with status "deleted".`,
+            parameters: {
+                type: 'OBJECT',
+                properties: { id: { type: 'STRING', description: 'The deleted to-do\'s id' } },
+                required: ['id'],
+            },
+            run: async ({ id }) => {
+                const trashed = (await store.trashedTodos()).find(t => t.id === String(id || '') && t.expiresAt > now());
+                if (!trashed) return { error: 'No recently deleted to-do has that id. Call list_todos with status "deleted".' };
+                if (!(await store.takeChange(MAX_CHANGES_PER_DAY))) return overLimit;
+                const todo = await store.restoreTodo(trashed.id);
+                return { restored: Boolean(todo), text: `<todo>${stripMarkup(todo?.text)}</todo>` };
             },
         },
         save_week_review: {
