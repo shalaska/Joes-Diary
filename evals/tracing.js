@@ -16,7 +16,9 @@ import { resourceFromAttributes } from '@opentelemetry/resources';
 import { BatchSpanProcessor, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
 import { OpenInferenceSpanKind, SEMRESATTRS_PROJECT_NAME, SemanticConventions as SC } from '@arizeai/openinference-semantic-conventions';
 
-export const ARIZE_ENDPOINT = 'https://otlp.arize.com/v1/traces';
+// US spaces use otlp.arize.com; a space in another region uses otlp.<region>.arize.com, which
+// ARIZE_REGION (e.g. eu-west-1a) selects. The region shows in the Arize app's address.
+export const arizeEndpoint = (region = '') => (region ? `https://otlp.${region}.arize.com/v1/traces` : 'https://otlp.arize.com/v1/traces');
 export const PROJECT = 'joes-diary-evals';
 const MAX_TEXT = 20000;
 
@@ -25,14 +27,8 @@ const text = (value) => {
     return s.length > MAX_TEXT ? `${s.slice(0, MAX_TEXT)}…` : s;
 };
 
-// Arize's examples spell the credentials both ways; sending both keeps the exporter working
-// whichever spelling its OTLP endpoint reads.
-export const arizeHeaders = ({ ARIZE_API_KEY, ARIZE_SPACE_ID }) => ({
-    space_id: ARIZE_SPACE_ID,
-    api_key: ARIZE_API_KEY,
-    'arize-space-id': ARIZE_SPACE_ID,
-    'arize-api-key': ARIZE_API_KEY,
-});
+// The header names Arize documents for OTLP over HTTP.
+export const arizeHeaders = ({ ARIZE_API_KEY, ARIZE_SPACE_ID }) => ({ space_id: ARIZE_SPACE_ID, api_key: ARIZE_API_KEY });
 
 // "Forbidden: invalid Space ID": the OTLP error's message plus the readable part of the reply.
 const describeError = (error) => {
@@ -58,14 +54,14 @@ const countingExporter = (inner) => {
 const noop = { enabled: false, tracer: trace.getTracer(PROJECT), sessionId: null, shutdown: async () => '' };
 
 /**
- * env: ARIZE_API_KEY, ARIZE_SPACE_ID (both, or tracing stays off), GITHUB_RUN_ID / GITHUB_SHA.
+ * env: ARIZE_API_KEY, ARIZE_SPACE_ID (both, or tracing stays off), ARIZE_REGION, GITHUB_RUN_ID.
  * exporter: tests pass an InMemorySpanExporter instead of the network one.
  * Returns { enabled, tracer, sessionId, shutdown() -> a one-line summary for the log }.
  */
 export const createEvalTracing = ({ env = process.env, exporter = null, now = Date.now } = {}) => {
     if (!exporter && !(env.ARIZE_API_KEY && env.ARIZE_SPACE_ID)) return noop;
     if (!exporter) diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
-    const counted = countingExporter(exporter || new OTLPTraceExporter({ url: ARIZE_ENDPOINT, headers: arizeHeaders(env) }));
+    const counted = countingExporter(exporter || new OTLPTraceExporter({ url: arizeEndpoint(env.ARIZE_REGION), headers: arizeHeaders(env) }));
     const provider = new NodeTracerProvider({
         resource: resourceFromAttributes({ [SEMRESATTRS_PROJECT_NAME]: PROJECT, 'service.name': PROJECT }),
         spanProcessors: [exporter ? new SimpleSpanProcessor(counted) : new BatchSpanProcessor(counted)],

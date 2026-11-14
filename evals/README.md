@@ -93,7 +93,9 @@ is set), and the run summary ends with one comparison table (`evals/bakeoff.js`)
 
 With the `ARIZE_API_KEY` and `ARIZE_SPACE_ID` repository secrets set, every eval run is also
 sent to Arize (project `joes-diary-evals`) as OpenTelemetry traces, using the OpenInference
-conventions. `evals/tracing.js` builds them:
+conventions. The space lives in Arize's EU region, so the workflow sends to `eu-west-1a`
+(the region shows in the Arize app's address); an `ARIZE_REGION` repository variable overrides
+it. `evals/tracing.js` builds them:
 
 - one root span per case (`eval <feature>/<case>`): the synthetic input, the answer, pass or fail,
   and a `session.id` shared by the whole run, so a CI run shows up as one session;
