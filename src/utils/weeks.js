@@ -106,12 +106,16 @@ export const weekReviewEntry = (week, review, date = new Date().toISOString()) =
     weekKey: week.key,
 });
 
+// A saved week review (the app's or Claude's). It belongs to the week view, not to a day page.
+export const isWeekReview = (entry) => entry?.type === 'analysis'
+    && (Boolean(entry.weekKey) || String(entry.content || '').startsWith('# Week of '));
+
 // The newest saved review of this week, if any: { entry, review } with the heading taken off.
-// Reviews saved before weekKey existed are found by their "# Week of ..." heading.
-export const savedWeekReview = (week, groupedEntries) => {
+// Reviews saved before weekKey existed are found by their "# Week of ..." heading. Takes a list of
+// entries or entries grouped by day, and looks at every day, since a review may sit on a day of its own.
+export const savedWeekReview = (week, entries) => {
     const heading = reviewHeading(week);
-    const saved = week.days
-        .flatMap(groupId => groupedEntries[groupId] || [])
+    const saved = (Array.isArray(entries) ? entries : Object.values(entries).flat())
         .filter(e => e.type === 'analysis'
             && (e.weekKey === week.key || (!e.weekKey && String(e.content || '').startsWith(heading))))
         .sort((a, b) => new Date(b.date) - new Date(a.date))[0];

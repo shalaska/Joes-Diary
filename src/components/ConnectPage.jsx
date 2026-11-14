@@ -101,7 +101,7 @@ export function ConnectConsent({ params, navigate = goTo }) {
                     <span className="w-[18px] shrink-0 flex justify-center pt-0.5">
                         <input type="checkbox" className="w-4 h-4 accent-indigo-600" checked={change} onChange={(e) => setChange(e.target.checked)} />
                     </span>
-                    <span>Also add, tick off and delete to-dos, and save week reviews, without asking. What it adds is marked “by Claude”.</span>
+                    <span>Also add notes and to-dos, tick off and delete to-dos, and save week reviews, without asking. What it adds is marked “by Claude”.</span>
                 </label>
                 <div className="flex gap-2 text-slate-500">
                     <X size={18} className="text-slate-400 shrink-0 mt-0.5" />

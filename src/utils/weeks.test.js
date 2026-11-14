@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupWeeks, mondayOf, reviewDayFor, savedWeekReview, weekRangeLabel, weekReviewEntry, weekReviewInput } from './weeks';
+import { groupWeeks, isWeekReview, mondayOf, reviewDayFor, savedWeekReview, weekRangeLabel, weekReviewEntry, weekReviewInput } from './weeks';
 
 const entry = (date, content, extra = {}) => ({ date, content, ...extra });
 
@@ -78,5 +78,15 @@ describe('weeks', () => {
         const withBoth = { ...GROUPED, 'Sun Nov 15 2026': [...withOld['Sun Nov 15 2026'], entry] };
         expect(savedWeekReview(week, withBoth).review).toBe('## The week in brief\nGood week.');
         expect(savedWeekReview(groupWeeks(GROUPED)[0], withBoth)).toBeNull();
+    });
+
+    it('tells week reviews apart from day analyses, and finds a review kept apart from the days', () => {
+        const week = groupWeeks(GROUPED)[1];
+        const review = { ...weekReviewEntry(week, 'Kept apart.', '2026-11-14T07:29:00.000Z'), groupId: 'Sat Nov 14 2026', source: 'claude' };
+        expect(isWeekReview(review)).toBe(true);
+        expect(isWeekReview({ type: 'analysis', content: '# Week of 2–8 Nov 2026\n\nOld' })).toBe(true);
+        expect(isWeekReview({ type: 'analysis', content: 'Gemini on today' })).toBe(false);
+        expect(isWeekReview({ content: '# Week of my holiday' })).toBe(false);
+        expect(savedWeekReview(week, [review]).review).toBe('Kept apart.');
     });
 });

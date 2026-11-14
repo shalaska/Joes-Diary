@@ -8,7 +8,7 @@ import AskDiaryPanel from './components/AskDiaryPanel';
 import WeekView from './components/WeekView';
 import GoalsView from './components/GoalsView';
 import DailyAnchors from './components/DailyAnchors';
-import { dayKey, groupWeeks, parseGroupId, weekReviewEntry } from './utils/weeks';
+import { dayKey, groupWeeks, isWeekReview, parseGroupId, weekReviewEntry } from './utils/weeks';
 import { anchorsForDay } from './utils/anchorsGoals';
 import { noteGroupId, pendingProposals, proposalNoteEntry, proposalTodo, staleProposals } from './utils/proposals';
 import { dayToGroupId } from './services/askDiaryService';
@@ -315,10 +315,11 @@ function DiaryApp() {
     initData();
   }, [currentUser]);
 
-  // Group entries
+  // Group entries by day. Week reviews live in the week view, so they are kept off the day pages.
+  const weekReviews = useMemo(() => entries.filter(isWeekReview), [entries]);
   const groupedEntries = useMemo(() => {
     const groups = {};
-    entries.forEach(entry => {
+    entries.filter(entry => !isWeekReview(entry)).forEach(entry => {
       const groupId = entry.groupId || new Date(entry.date).toDateString();
       if (!groups[groupId]) groups[groupId] = [];
       groups[groupId].push(entry);
@@ -667,7 +668,7 @@ function DiaryApp() {
     }
   };
 
-  // A week review is saved as an analysis note on the last day of that week that has entries.
+  // A week review is stored with the last day of that week that has entries, and shown only in the week view.
   // Saves a week's review, replacing the one saved before (same document) if there is one.
   const handleSaveWeekReview = async (week, review, previous) => {
     await firestoreService.saveEntry(currentUser.uid, weekReviewEntry(week, review, previous?.date));
@@ -866,6 +867,7 @@ function DiaryApp() {
                 key={selectedWeekData.key}
                 week={selectedWeekData}
                 groupedEntries={groupedEntries}
+                reviews={weekReviews}
                 dayMetadata={dayMetadata}
                 analyzeWeek={analyzeWeek}
                 onSaveReview={handleSaveWeekReview}
@@ -970,6 +972,7 @@ function DiaryApp() {
                           key={entry.date}
                           date={entry.date}
                           initialContent={entry.content}
+                          byClaude={entry.source === 'claude'}
                           onSave={(date, content) => saveEntry(date, content, entry.groupId || new Date(entry.date).toDateString())}
                           onDelete={deleteEntry}
                           showDateHeader={false}

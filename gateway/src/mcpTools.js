@@ -2,10 +2,11 @@
 // does the thinking (a week's analysis, a nudge to write), so none of these call Gemini.
 //
 // - list_todos (with ids), read_week, diary_status: read permission.
-// - add_todo, complete_todo, delete_todo, restore_todo, save_week_review: the separate "change" permission.
-//   delete_todo moves the to-do to users/{uid}/todoTrash for TRASH_DAYS, where the app can restore it.
-//   They touch to-dos and week reviews only. No tool edits or deletes what the user wrote in
-//   the diary. Everything Claude adds carries source: 'claude', and the app marks it "by Claude".
+// - add_note, add_todo, complete_todo, delete_todo, restore_todo, save_week_review: the separate
+//   "change" permission. delete_todo moves the to-do to users/{uid}/todoTrash for TRASH_DAYS, where
+//   the app can restore it. add_note only adds a new note to a day. No tool edits or deletes what
+//   the user wrote in the diary. Everything Claude adds carries source: 'claude', and the app marks
+//   it "by Claude".
 import { dayOf } from './agent.js';
 
 export const TIME_ZONE = 'Europe/London';
@@ -15,6 +16,7 @@ export const TRASH_DAYS = 7;
 const WEEK_CHARS = 60000;
 const TODO_CHARS = 300;
 const REVIEW_CHARS = 8000;
+const NOTE_CHARS = 4000;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const PRIORITIES = ['high', 'medium', 'low'];
 const DAY_MS = 864e5;
@@ -48,16 +50,30 @@ const groupIdOf = (day) => new Date(toUtc(day)).toUTCString().replace(/^(\w{3}),
 
 const isReview = (entry) => entry.type === 'analysis';
 
+// Claude often starts a review with its own title; the diary adds "# Week of ...", so drop it.
+const withoutTitle = (text) => text.replace(/^#{1,6} [^\n]*\n+/, '').trim();
+
 /**
  * store: { entries(), todos(), addTodo(todo) -> id, updateTodo(id, fields), deleteTodo(id),
  *   saveEntry(entry) -> id, takeChange(limit) -> false once today's limit is reached }
  */
 export const createMcpTools = ({ store, now = () => Date.now(), timeZone = TIME_ZONE }) => {
     const today = () => todayIn(now(), timeZone);
+    // A day the app started with "New day" has a timestamp groupId: its day is the user's, not UTC's.
+    const localDay = (e) => (/^\d{4}-\d{2}-\d{2}T/.test(String(e.groupId)) && !Number.isNaN(Date.parse(e.groupId))
+        ? todayIn(Date.parse(e.groupId), timeZone)
+        : dayOf(e));
     let cache = null;
     const entries = async () => {
-        if (!cache) cache = (await store.entries()).map(e => ({ ...e, day: dayOf(e) }));
+        if (!cache) cache = (await store.entries()).map(e => ({ ...e, day: localDay(e) }));
         return cache;
+    };
+
+    // The day's own groupId if the diary already has that day (the app makes some groupIds from a
+    // timestamp, so building one from the date would split the day in two), else a new one.
+    const groupFor = async (day) => {
+        const existing = (await entries()).find(e => e.day === day && !isReview(e) && e.groupId);
+        return existing ? existing.groupId : groupIdOf(day);
     };
 
     const weekOf = (value) => {
@@ -161,6 +177,30 @@ export const createMcpTools = ({ store, now = () => Date.now(), timeZone = TIME_
     const todoById = async (id) => (await store.todos()).find(t => t.id === String(id || '')) || null;
 
     const change = {
+        add_note: {
+            description: 'Add a new note to a day of the diary, today unless the user names another day. It goes into that day if the diary has it already, or starts the day if not, and shows as written by Claude. Use it when the user asks you to write something down or add a note. It never changes or replaces a note the user wrote.',
+            parameters: {
+                type: 'OBJECT',
+                properties: {
+                    text: { type: 'STRING', description: 'The note, in Markdown, in the user\'s voice if they asked you to write it for them' },
+                    day: { type: 'STRING', description: 'YYYY-MM-DD. Default: today' },
+                },
+                required: ['text'],
+            },
+            run: async ({ text, day: dayArg }) => {
+                const day = dayArg === undefined || dayArg === '' ? today() : String(dayArg);
+                if (!ISO_DAY.test(day) || Number.isNaN(toUtc(day))) return { error: 'day must be YYYY-MM-DD' };
+                if (day > today()) return { error: 'That day has not happened yet.' };
+                const clean = String(text || '').trim();
+                if (!clean || clean.length > NOTE_CHARS) return { error: `text must be 1 to ${NOTE_CHARS} characters` };
+                if (!(await store.takeChange(MAX_CHANGES_PER_DAY))) return overLimit;
+                const groupId = await groupFor(day);
+                const newDay = !(await entries()).some(e => e.groupId === groupId);
+                const id = await store.saveEntry({ date: new Date(now()).toISOString(), content: clean, groupId, source: 'claude' });
+                cache = null;
+                return { added: true, id, day, note: newDay ? 'Started a new day in the diary with this note, marked as written by Claude.' : 'Added to that day in the diary, marked as written by Claude.' };
+            },
+        },
         add_todo: {
             description: 'Add a new to-do to the user\'s list. It shows as added by Claude. Use it when the user asks for a to-do.',
             parameters: {
@@ -231,7 +271,7 @@ export const createMcpTools = ({ store, now = () => Date.now(), timeZone = TIME_
             },
         },
         save_week_review: {
-            description: 'Save a review of one week into the diary, where the app\'s week view shows it, marked as written by Claude. Use it when the user asks to save a review. It adds a new review entry and never changes what the user wrote; the newest review of a week is the one shown.',
+            description: 'Save a review of one week into the diary\'s week view (not onto a day), marked as written by Claude. Use it when the user asks to save a review. Do not start with a title: the diary adds "Week of ...". It never changes what the user wrote; the newest review of a week is the one shown.',
             parameters: {
                 type: 'OBJECT',
                 properties: {
@@ -243,7 +283,7 @@ export const createMcpTools = ({ store, now = () => Date.now(), timeZone = TIME_
             run: async ({ week_of: weekArg, review }) => {
                 const monday = weekOf(weekArg);
                 if (!monday) return { error: 'week_of must be a day, YYYY-MM-DD' };
-                const text = String(review || '').trim();
+                const text = withoutTitle(String(review || '').trim());
                 if (!text || text.length > REVIEW_CHARS) return { error: `review must be 1 to ${REVIEW_CHARS} characters` };
                 if (monday > today()) return { error: 'That week has not started yet.' };
                 if (!(await store.takeChange(MAX_CHANGES_PER_DAY))) return overLimit;
@@ -254,7 +294,7 @@ export const createMcpTools = ({ store, now = () => Date.now(), timeZone = TIME_
                 const id = await store.saveEntry({
                     date: new Date(now()).toISOString(),
                     content: `# Week of ${weekLabel(monday)}\n\n${text}`,
-                    groupId: groupIdOf(day),
+                    groupId: await groupFor(day),
                     type: 'analysis',
                     weekKey: monday,
                     source: 'claude',

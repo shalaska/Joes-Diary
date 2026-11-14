@@ -157,6 +157,36 @@ describe('changing to-dos', () => {
     });
 });
 
+describe('add_note', () => {
+    it('adds to today by default, starting the day when the diary has none, marked as Claude\'s', async () => {
+        const s = makeStore();
+        const result = await tools(s).change.add_note.run({ text: '  Saturday: recharge, then one small job.  ' });
+        expect(result).toMatchObject({ added: true, day: '2026-11-14', note: expect.stringMatching(/new day/) });
+        expect(s.saved[0]).toEqual({ date: '2026-11-14T07:00:00.000Z', content: 'Saturday: recharge, then one small job.', groupId: 'Sat Nov 14 2026', source: 'claude' });
+    });
+
+    it('goes into the day the diary already has, even when the app gave it a timestamp id', async () => {
+        // "New day" in the app uses the time as the day's id; 23:30 UTC on 13 Nov is still Friday in London in winter.
+        const s = makeStore();
+        s.entryList.push({ date: '2026-11-13T23:30:00.000Z', groupId: '2026-11-13T23:30:00.000Z', content: 'Late Friday.' });
+        s.entryList.push({ date: '2026-11-14T06:10:00.000Z', groupId: '2026-11-14T06:10:00.000Z', content: '' });
+        expect(await tools(s).change.add_note.run({ text: 'Morning.' })).toMatchObject({ added: true, note: expect.stringMatching(/Added to that day/) });
+        expect(s.saved[0].groupId).toBe('2026-11-14T06:10:00.000Z');
+        await tools(s).change.add_note.run({ text: 'About Wednesday.', day: '2026-11-11' });
+        expect(s.saved[1].groupId).toBe('Wed Nov 11 2026');
+    });
+
+    it('refuses a future or malformed day, an empty note, and counts toward the daily limit', async () => {
+        const s = makeStore({ changes: MAX_CHANGES_PER_DAY });
+        const t = tools(s);
+        expect((await t.change.add_note.run({ text: 'x', day: '2026-11-15' })).error).toMatch(/not happened/);
+        expect((await t.change.add_note.run({ text: 'x', day: 'today' })).error).toBeTruthy();
+        expect((await t.change.add_note.run({ text: ' ' })).error).toBeTruthy();
+        expect((await t.change.add_note.run({ text: 'x' })).error).toBeTruthy();
+        expect(s.saved).toHaveLength(0);
+    });
+});
+
 describe('save_week_review', () => {
     it('saves a new review entry the week view finds, marked as Claude\'s, on the week\'s last day with notes', async () => {
         const s = makeStore();
@@ -174,6 +204,14 @@ describe('save_week_review', () => {
         const week = await tools(s).read.read_week.run({ week_of: '2026-11-09' });
         expect(week.savedReview).toMatch(/Wins/);
         expect(week.days).toHaveLength(3);
+    });
+
+    it('drops a title Claude wrote itself, and joins the day the diary already has', async () => {
+        const s = makeStore();
+        s.entryList.push({ date: '2026-11-14T06:10:00.000Z', groupId: '2026-11-14T06:10:00.000Z', content: '' });
+        await tools(s).change.save_week_review.run({ week_of: '2026-11-14', review: '## Week of 9–15 Nov (so far)\n\nA week of recovery.' });
+        expect(s.saved[0].content).toBe('# Week of 9–15 Nov 2026\n\nA week of recovery.');
+        expect(s.saved[0].groupId).toBe('2026-11-14T06:10:00.000Z');
     });
 
     it('refuses a week that has not started, or an empty review', async () => {
