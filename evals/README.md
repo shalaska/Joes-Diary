@@ -88,3 +88,18 @@ Run the Evals workflow from the Actions tab with `bakeoff` set to `auto` (the pi
 plus the newest two stable Flash, Flash-Lite and Pro models) or to a comma list of models.
 Every model gets the same cases and the same judge (the pinned model unless `judge_model`
 is set), and the run summary ends with one comparison table (`evals/bakeoff.js`).
+
+## Traces in Arize
+
+With the `ARIZE_API_KEY` and `ARIZE_SPACE_ID` repository secrets set, every eval run is also
+sent to Arize (project `joes-diary-evals`) as OpenTelemetry traces, using the OpenInference
+conventions. `evals/tracing.js` builds them:
+
+- one root span per case (`eval <feature>/<case>`): the synthetic input, the answer, pass or fail,
+  and a `session.id` shared by the whole run, so a CI run shows up as one session;
+- an `LLM` span per model call: model, prompt, reply, input, output and thinking tokens;
+- an `EVALUATOR` span per code check (`evaluation.label` pass or fail, score 1 or 0, the detail);
+- a `judge` span with the judge's own model call inside, its lowest score and each criterion.
+
+Only eval data is traced. The gateway never imports this file, so nothing from the live diary
+can reach Arize. Without the secrets (local runs, forks) tracing stays off and nothing changes.
