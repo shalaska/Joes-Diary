@@ -12,7 +12,8 @@
 // EVAL_CALIBRATE=1 (only score the judge against the hand labels in calibration.js),
 // EVAL_GATE=1 (fail the run if it regresses against evals/baseline.json),
 // EVAL_WRITE_BASELINE=1 (write evals/baseline.json from this run),
-// EVAL_MAX_COST_EUR (stop starting cases once the run has cost this much, and fail the run).
+// EVAL_MAX_COST_EUR (stop starting cases once the run has cost this much, and fail the run),
+// EVAL_EXPERIMENT + EVAL_VARIANT (run one variant of a prompt experiment, evals/experiments.js).
 // Every run ends with what it cost, judge included (evals/pricing.js).
 // Inputs are synthetic. Nothing here reads or sends diary data.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -28,6 +29,7 @@ import { FEATURES } from '../gateway/src/features.js';
 import { listModels } from './models.js';
 import { costMarkdown, createMeter } from './pricing.js';
 import { createEvalTracing, traceCase, traceJudge, traceModel } from './tracing.js';
+import { findVariant } from './experiments.js';
 
 const CONCURRENCY = 4;
 
@@ -75,14 +77,20 @@ const main = async () => {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY is not set');
     const envText = readFileSync('gateway/.env.joesdiary-d8211', 'utf8');
-    const model = process.env.EVAL_MODEL || readPinnedModel(envText);
+    // A prompt experiment runs one feature, with each case's input changed by the variant.
+    const { experiment, variant } = process.env.EVAL_EXPERIMENT
+        ? findVariant(process.env.EVAL_EXPERIMENT, process.env.EVAL_VARIANT)
+        : { experiment: null, variant: null };
+    const only = experiment ? [experiment.feature] : (process.env.EVAL_FEATURES || '').split(',').map(s => s.trim()).filter(Boolean);
+    const inputFor = (suite, testCase) => (variant ? variant.input(suite.input(testCase)) : suite.input(testCase));
+    if (variant) console.log(`Experiment ${process.env.EVAL_EXPERIMENT}, variant ${variant.name}`);
+    const model = process.env.EVAL_MODEL || variant?.model || readPinnedModel(envText);
     // Without EVAL_MODEL the evals test the live setup, per-feature overrides included.
     // With it (e.g. a bake-off or the model bump) every feature uses that one model.
-    const featureModels = process.env.EVAL_MODEL ? {} : readFeatureModels(envText);
+    const featureModels = process.env.EVAL_MODEL || variant?.model ? {} : readFeatureModels(envText);
     if (Object.keys(featureModels).length) console.log(`Per-feature models: ${JSON.stringify(featureModels)}`);
     const repeats = Number(process.env.EVAL_REPEATS || 1);
     const agentRepeats = Number(process.env.EVAL_AGENT_REPEATS || repeats);
-    const only = (process.env.EVAL_FEATURES || '').split(',').map(s => s.trim()).filter(Boolean);
     const outDir = process.env.EVAL_OUT || 'eval-results';
 
     // The thinking level applies to the model under test only, as live (GEMINI_THINKING goes with the
@@ -116,7 +124,7 @@ const main = async () => {
     for (const suite of suites) {
         for (const testCase of suite.cases) {
             for (let run = 1; run <= (suite.makeHandler ? agentRepeats : repeats); run++) {
-                jobs.push(() => traceCase(tracing, { feature: suite.feature, caseId: testCase.id, run, input: suite.input(testCase), model: featureModels[suite.feature] || model }, async () => {
+                jobs.push(() => traceCase(tracing, { feature: suite.feature, caseId: testCase.id, run, input: inputFor(suite, testCase), model: featureModels[suite.feature] || model }, async () => {
                     if (limitEur !== null && meter.totalEur() >= limitEur) {
                         stopped += 1;
                         return {
@@ -132,7 +140,7 @@ const main = async () => {
                     let output = null;
                     let errorMessage = '';
                     try {
-                        output = (await handle({ feature: suite.feature, input: suite.input(testCase) })).output;
+                        output = (await handle({ feature: suite.feature, input: inputFor(suite, testCase) })).output;
                     } catch (error) {
                         // The outcome is in the log entry; the message (e.g. the HTTP status) goes in the report.
                         errorMessage = error.message;

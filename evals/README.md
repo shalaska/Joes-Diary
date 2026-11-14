@@ -105,3 +105,17 @@ it. `evals/tracing.js` builds them:
 
 Only eval data is traced. The gateway never imports this file, so nothing from the live diary
 can reach Arize. Without the secrets (local runs, forks) tracing stays off and nothing changes.
+
+## Prompt experiments
+
+An eval run asks "did this change make things worse?" against the saved baseline. An experiment asks "which of these versions is better?", case by case, before anything ships.
+
+`evals/experiments.js` defines each experiment: one feature, and two or more variants that change each case's input. Chat and edit already accept a custom prompt (the same inputs the Settings page uses), so a variant can try a new prompt without touching the gateway. A variant can also pin a different model.
+
+Run one from Actions > Evals > Run workflow, with `experiment` set (for example `chat-tone`):
+1. Each variant runs the feature's cases through the real gateway handler, with the same graders and judge as an eval run.
+2. `evals/arizeExperiments.js` uploads the cases to Arize once, as a dataset. Its name carries a hash of the cases, so editing a case makes a new dataset.
+3. Each variant becomes an experiment on that dataset. Its checks and judge scores are `eval.*` columns.
+4. In Arize, open Datasets, then the dataset, then Experiments, and compare the variants side by side.
+
+The run summary also has a table of pass rate and judge means per variant. As with any eval run, it ends with what it cost and stops at the spend limit.
