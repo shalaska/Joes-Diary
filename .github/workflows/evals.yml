@@ -1,9 +1,12 @@
 name: Evals
 
 # Runs the synthetic eval suites (evals/) against a Gemini model through the production
-# gateway handler and posts the scores in the run summary. On pull requests every case runs
-# 3 times and the run fails if any feature drops beyond the noise tolerance against
-# evals/baseline.json (see evals/gate.js). Manual runs are report-only unless gate is ticked.
+# gateway handler and posts the scores in the run summary. A pull request runs only the suites
+# its change can affect (evals/pickSuites.js): those cases run 3 times and the run fails if a
+# feature drops beyond the noise tolerance against evals/baseline.json (see evals/gate.js).
+# Manual runs are report-only unless gate is ticked.
+# Every run costs money from the Gemini spend cap. The run summary ends with what it cost,
+# judge included, and a run stops and fails once it reaches its spend limit.
 on:
   pull_request:
     paths:
@@ -35,6 +38,10 @@ on:
       features:
         description: 'Only these suites, comma list (blank = all). E.g. extractTodos,calendarNote,chat,edit,weekReview'
         required: false
+      max_cost:
+        description: 'Spend limit for the run in EUR (per model in a bake-off). The run stops and fails when it gets there.'
+        required: false
+        default: '1.00'
 
 permissions:
   contents: read
@@ -51,6 +58,8 @@ env:
   # The judge stays fixed when the model under test changes, so judge scores stay comparable
   # to evals/baseline.json (which was judged by this model). Change both together.
   DEFAULT_JUDGE_MODEL: gemini-3.8-flash
+  # A full pull-request run cost about 0.70 EUR in November 2026. The limit is a backstop.
+  EVAL_MAX_COST_EUR: ${{ inputs.max_cost || '1.00' }}
   WORKLOAD_IDENTITY_PROVIDER: projects/837714540398/locations/global/workloadIdentityPools/github/providers/joes-diary
   SERVICE_ACCOUNT: github-deploy@joesdiary-d8211.iam.gserviceaccount.com
 
@@ -79,9 +88,16 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v2
 
+      # What a pull request runs depends on the files it changes: see evals/pickSuites.js.
+      - name: Pick the suites
+        id: suites
+        if: github.event_name == 'pull_request'
+        run: git diff --name-only "origin/${{ github.base_ref }}...HEAD" | node evals/pickSuites.js >> "$GITHUB_OUTPUT"
+
       # The key is read from Secret Manager, masked, and only exists inside these steps.
+      # The judge is checked on manual runs, and on pull requests that change the judge.
       - name: Check the judge against the hand labels
-        if: inputs.bakeoff == ''
+        if: inputs.bakeoff == '' && (github.event_name == 'workflow_dispatch' || steps.suites.outputs.calibrate == 'true')
         env:
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model || env.DEFAULT_JUDGE_MODEL }}
           EVAL_CALIBRATE: '1'
@@ -91,30 +107,18 @@ jobs:
           echo "::add-mask::$GEMINI_API_KEY"
           GEMINI_API_KEY="$GEMINI_API_KEY" node evals/run.js
 
-      # The ask agent costs far more tokens than the other features, so a PR runs it only when it
-      # touches the agent, its evals or the shared Gemini client.
-      - name: Pick the suites
-        id: suites
-        if: github.event_name == 'pull_request'
-        run: |
-          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qE '^(gateway/src/(agent|gemini)\.js|gateway/index\.js|evals/(agent/|cases/ask\.js))'; then
-            echo "features=" >> "$GITHUB_OUTPUT"
-          else
-            echo "features=extractTodos,calendarNote,chat,edit" >> "$GITHUB_OUTPUT"
-            echo "Skipping the ask suite: this PR does not touch the agent."
-          fi
-
       - name: Run the evals
-        if: inputs.bakeoff == ''
+        if: inputs.bakeoff == '' && steps.suites.outputs.skip != 'true'
         env:
           EVAL_FEATURES: ${{ steps.suites.outputs.features || inputs.features }}
           EVAL_THINKING: ${{ inputs.thinking }}
           EVAL_MODEL: ${{ inputs.model }}
           EVAL_JUDGE_MODEL: ${{ inputs.judge_model || env.DEFAULT_JUDGE_MODEL }}
-          EVAL_REPEATS: ${{ inputs.repeats || '3' }}
+          EVAL_REPEATS: ${{ steps.suites.outputs.repeats || inputs.repeats || '3' }}
           # The ask agent makes several model calls per case, so PRs run each of its cases once.
           EVAL_AGENT_REPEATS: ${{ github.event_name == 'pull_request' && '1' || '' }}
-          EVAL_GATE: ${{ (github.event_name == 'pull_request' || inputs.gate) && '1' || '0' }}
+          # A harness-only check (gate=false from pickSuites) is not a quality run, so it is not gated.
+          EVAL_GATE: ${{ ((github.event_name == 'pull_request' && steps.suites.outputs.gate != 'false') || inputs.gate) && '1' || '0' }}
           EVAL_OUT: ${{ runner.temp }}/eval-results
         run: |
           GEMINI_API_KEY=$(gcloud secrets versions access latest --secret=GEMINI_API_KEY --project="$PROJECT_ID")

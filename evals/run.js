@@ -11,7 +11,9 @@
 // EVAL_JUDGE_MODEL (default: newest stable Pro), EVAL_JUDGE=0 (code graders only),
 // EVAL_CALIBRATE=1 (only score the judge against the hand labels in calibration.js),
 // EVAL_GATE=1 (fail the run if it regresses against evals/baseline.json),
-// EVAL_WRITE_BASELINE=1 (write evals/baseline.json from this run).
+// EVAL_WRITE_BASELINE=1 (write evals/baseline.json from this run),
+// EVAL_MAX_COST_EUR (stop starting cases once the run has cost this much, and fail the run).
+// Every run ends with what it cost, judge included (evals/pricing.js).
 // Inputs are synthetic. Nothing here reads or sends diary data.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHandler } from '../gateway/src/handler.js';
@@ -24,6 +26,7 @@ import { calibrationMarkdown, summarise, toMarkdown } from './report.js';
 import { compareToBaseline, gateMarkdown, toBaseline } from './gate.js';
 import { FEATURES } from '../gateway/src/features.js';
 import { listModels } from './models.js';
+import { costMarkdown, createMeter } from './pricing.js';
 
 const CONCURRENCY = 4;
 
@@ -55,12 +58,12 @@ const chooseJudgeModel = async (apiKey, callModel, fallback) => {
     return fallback;
 };
 
-const calibrate = async (judge, judgeModel, outDir) => {
+const calibrate = async (judge, judgeModel, outDir, meter) => {
     const rows = await runPool(CALIBRATION.map(item => async () => {
         const verdict = await judge(item.feature, item.input, item.output).catch(error => ({ pass: null, scores: {}, reason: `judge error: ${error.message}` }));
         return { ...item, judged: verdict.pass === null ? 'error' : (verdict.pass ? 'pass' : 'fail'), scores: verdict.scores, reason: verdict.reason };
     }), CONCURRENCY);
-    const markdown = calibrationMarkdown(judgeModel, rows);
+    const markdown = `${calibrationMarkdown(judgeModel, rows)}\n${costMarkdown(meter)}`;
     mkdirSync(outDir, { recursive: true });
     writeFileSync(`${outDir}/calibration.json`, JSON.stringify(rows, null, 2));
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown);
@@ -86,24 +89,36 @@ const main = async () => {
     const level = process.env.EVAL_THINKING || (process.env.EVAL_MODEL ? '' : readThinking(envText));
     if (level) console.log(`Thinking level for ${model}: ${level}`);
     const thinkingLevel = (m) => (m === model ? level : '');
-    const callModel = createGeminiClient({ apiKey, timeoutMs: 60000 });
-    const callFeature = level ? createGeminiClient({ apiKey, timeoutMs: 60000, thinkingLevel }) : callModel;
-    const callTools = createGeminiToolClient({ apiKey, timeoutMs: 60000, thinkingLevel });
+    // Every model call goes through the meter, so the run can say what it cost and stop at a limit.
+    const meter = createMeter();
+    const limitEur = process.env.EVAL_MAX_COST_EUR ? Number(process.env.EVAL_MAX_COST_EUR) : null;
+    const plain = createGeminiClient({ apiKey, timeoutMs: 60000 });
+    const callJudge = meter.wrap(plain, process.env.EVAL_CALIBRATE === '1' ? 'judge calibration' : 'judge');
+    const callFeature = meter.wrap(level ? createGeminiClient({ apiKey, timeoutMs: 60000, thinkingLevel }) : plain, 'under test');
+    const callTools = meter.wrap(createGeminiToolClient({ apiKey, timeoutMs: 60000, thinkingLevel }), 'under test');
     const useJudge = process.env.EVAL_JUDGE !== '0';
-    const judgeModel = process.env.EVAL_JUDGE_MODEL || (useJudge || process.env.EVAL_CALIBRATE === '1' ? await chooseJudgeModel(apiKey, callModel, model) : null);
-    const judge = useJudge ? createJudge({ callModel, model: judgeModel }) : null;
+    const judgeModel = process.env.EVAL_JUDGE_MODEL || (useJudge || process.env.EVAL_CALIBRATE === '1' ? await chooseJudgeModel(apiKey, callJudge, model) : null);
+    const judge = useJudge ? createJudge({ callModel: callJudge, model: judgeModel }) : null;
 
     if (process.env.EVAL_CALIBRATE === '1') {
-        await calibrate(createJudge({ callModel, model: judgeModel }), judgeModel, outDir);
+        await calibrate(createJudge({ callModel: callJudge, model: judgeModel }), judgeModel, outDir, meter);
         return;
     }
 
     const suites = SUITES.filter(suite => only.length === 0 || only.includes(suite.feature));
     const jobs = [];
+    let stopped = 0;
     for (const suite of suites) {
         for (const testCase of suite.cases) {
             for (let run = 1; run <= (suite.makeHandler ? agentRepeats : repeats); run++) {
                 jobs.push(async () => {
+                    if (limitEur !== null && meter.totalEur() >= limitEur) {
+                        stopped += 1;
+                        return {
+                            feature: suite.feature, caseId: testCase.id, run, outcome: 'not_run', pass: false, output: null, judge: null,
+                            checks: [{ name: 'within_spend_limit', pass: false, detail: `not started: the run had reached its spend limit of €${limitEur}` }],
+                        };
+                    }
                     let logEntry = null;
                     const log = (entry) => { logEntry = entry; };
                     const handle = suite.makeHandler
@@ -166,10 +181,16 @@ const main = async () => {
         writeFileSync('evals/baseline.json', baselineJson);
         console.log(`New baseline:\n${baselineJson}`);
     }
+    markdown = `${markdown}\n${costMarkdown(meter, { limitEur, stopped })}`;
+    writeFileSync(`${outDir}/cost.json`, JSON.stringify({ totalEur: meter.totalEur(), limitEur, stopped, rows: meter.rows() }, null, 2));
     writeFileSync(`${outDir}/report.md`, markdown);
     if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, markdown);
     console.log(markdown);
 
+    if (stopped) {
+        console.error(`Stopped at the spend limit of €${limitEur}: ${stopped} case run(s) were not started.`);
+        process.exit(1);
+    }
     if (gateFailed) {
         console.error('Eval gate failed: quality dropped beyond the noise tolerance. See the report.');
         process.exit(1);
