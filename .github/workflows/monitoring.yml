@@ -1,0 +1,60 @@
+name: Monitoring
+
+# SLOs and alerts as code: ops/monitoring/config.js is the source of truth, and this job makes
+# Google Cloud Monitoring match it (log-based metrics, the SLOs, an email channel and one
+# burn-rate alert per SLO). Pull requests print the plan; merges to main apply it.
+# Uses the same keyless github-deploy service account as the deploy, which needs
+# roles/monitoring.editor and roles/logging.configWriter for this. It still has no access to
+# Firestore data or to log contents.
+on:
+  pull_request:
+    paths: ['ops/monitoring/**', 'scripts/applyMonitoring.js', '.github/workflows/monitoring.yml']
+  push:
+    branches: [main]
+    paths: ['ops/monitoring/**', 'scripts/applyMonitoring.js', '.github/workflows/monitoring.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: monitoring
+  cancel-in-progress: false
+
+env:
+  WORKLOAD_IDENTITY_PROVIDER: projects/837714540398/locations/global/workloadIdentityPools/github/providers/joes-diary
+  SERVICE_ACCOUNT: github-deploy@joesdiary-d8211.iam.gserviceaccount.com
+
+jobs:
+  monitoring:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Plan
+        if: github.event_name == 'pull_request'
+        run: |
+          node scripts/applyMonitoring.js --dry-run > plan.txt
+          { echo '### Monitoring plan'; echo '```'; head -c 60000 plan.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          grep -E '^(POST|PUT|PATCH) ' plan.txt
+
+      - name: Authenticate to Google Cloud (keyless)
+        id: auth
+        if: github.event_name != 'pull_request'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+          token_format: access_token
+
+      - name: Apply
+        if: github.event_name != 'pull_request'
+        env:
+          GCP_TOKEN: ${{ steps.auth.outputs.access_token }}
+          ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
+        run: node scripts/applyMonitoring.js
