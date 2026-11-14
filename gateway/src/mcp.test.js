@@ -32,6 +32,7 @@ const TOKENS = {
     'other-token': { uid: 'other', scopes: [SCOPES.READ] },
     'suggest-only-token': { uid: 'joe', scopes: [SCOPES.SUGGEST] },
     'change-token': { uid: 'joe', scopes: [SCOPES.READ, SCOPES.CHANGE] },
+    'all-token': { uid: 'joe', scopes: [SCOPES.READ, SCOPES.SUGGEST, SCOPES.CHANGE] },
 };
 const authenticate = async (request) => TOKENS[(request.headers.get('authorization') || '').replace(/^Bearer /, '')] ?? null;
 
@@ -110,7 +111,7 @@ describe('MCP server', () => {
         expect(result).toMatchObject({ suggested: true, id: 'p1' });
         expect(users.joe.proposals).toEqual([{
             kind: 'todo', text: 'Call Maya', priority: 'high', status: 'pending', source: 'mcp',
-            createdAt: '2026-11-13T10:00:00.000Z', expiresAt: '2026-11-20T10:00:00.000Z', promptVersion: 'mcp-v2/ask-v3',
+            createdAt: '2026-11-13T10:00:00.000Z', expiresAt: '2026-11-20T10:00:00.000Z', promptVersion: 'mcp-v3/ask-v3',
         }]);
         expect((await client.callTool({ name: 'propose_note', arguments: { day: 'tomorrow', text: 'x' } })).isError).toBe(true);
         expect(users.joe.proposals).toHaveLength(1);
@@ -122,10 +123,14 @@ describe('MCP server', () => {
         const suggestNames = (await (await connect({ token: 'suggest-token', handler })).listTools()).tools.map(t => t.name);
         expect(suggestNames).not.toContain('add_todo');
         const { tools } = await (await connect({ token: 'change-token', handler })).listTools();
-        expect(tools.map(t => t.name)).toEqual(expect.arrayContaining(['add_todo', 'complete_todo', 'delete_todo', 'restore_todo', 'save_week_review']));
+        expect(tools.map(t => t.name)).toEqual(expect.arrayContaining(['add_note', 'add_todo', 'complete_todo', 'delete_todo', 'restore_todo', 'save_week_review']));
         expect(tools.map(t => t.name)).not.toContain('propose_todo');
         expect(tools.find(t => t.name === 'delete_todo').annotations).toMatchObject({ readOnlyHint: false, destructiveHint: true });
         expect(tools.find(t => t.name === 'add_todo').annotations).toMatchObject({ destructiveHint: false });
+        // With both permissions Claude adds directly, so the suggest-and-tap tools are not offered.
+        const allNames = (await (await connect({ token: 'all-token', handler })).listTools()).tools.map(t => t.name);
+        expect(allNames).toContain('add_note');
+        expect(allNames).not.toContain('propose_note');
     });
 
     it('stops taking suggestions while too many are waiting', async () => {

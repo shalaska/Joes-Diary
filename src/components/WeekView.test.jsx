@@ -35,7 +35,7 @@ describe('WeekView', () => {
         };
         const html = render(<WeekView week={week} groupedEntries={withReview} dayMetadata={{}} onOpenDay={() => {}} analyzeWeek={async () => ''} onSaveReview={async () => {}} />);
         expect(html).toContain('A steady week.');
-        expect(html).toContain('Saved to Wednesday 11 November');
+        expect(html).toContain('Saved to this week');
         expect(html).toContain('Analyze again');
         expect(html).not.toContain('Analyze my week');
         expect(html).not.toContain('Written by Claude');
@@ -59,6 +59,14 @@ describe('Sidebar week mode', () => {
         const fromClaude = { ...weekReviewEntry(week, 'Claude\'s view of the week.', '2026-11-11T22:00:00.000Z'), source: 'claude' };
         const withReview = { ...grouped, 'Wed Nov 11 2026': [...grouped['Wed Nov 11 2026'], fromClaude] };
         const html = render(<WeekView week={week} groupedEntries={withReview} dayMetadata={{}} onOpenDay={() => {}} analyzeWeek={async () => ''} onSaveReview={async () => {}} />);
+        expect(html).toContain('Written by Claude');
+    });
+
+    it('shows a review passed apart from the day pages', () => {
+        const week = groupWeeks(grouped)[0];
+        const review = { ...weekReviewEntry(week, 'Kept in the week.', '2026-11-14T07:29:00.000Z'), groupId: 'Sat Nov 14 2026', source: 'claude' };
+        const html = render(<WeekView week={week} groupedEntries={grouped} reviews={[review]} dayMetadata={{}} onOpenDay={() => {}} analyzeWeek={async () => ''} onSaveReview={async () => {}} />);
+        expect(html).toContain('Kept in the week.');
         expect(html).toContain('Written by Claude');
     });
 });

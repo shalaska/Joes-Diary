@@ -15,8 +15,8 @@ const dayTitle = (groupId, dayMetadata) => dayMetadata?.[groupId]?.customTitle
 // One week of the diary: every note from Monday to Sunday, read-only, with "Analyze my week".
 // A review saves itself to the diary as soon as it arrives, and shows again when the week is reopened.
 // Analyzing again replaces the saved review. Days open in the normal day view for editing.
-const WeekView = ({ week, groupedEntries, dayMetadata, onOpenDay, analyzeWeek, onSaveReview }) => {
-    const saved = savedWeekReview(week, groupedEntries);
+const WeekView = ({ week, groupedEntries, reviews, dayMetadata, onOpenDay, analyzeWeek, onSaveReview }) => {
+    const saved = savedWeekReview(week, reviews ?? groupedEntries);
     const [review, setReview] = useState(saved?.review || null);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -96,7 +96,7 @@ const WeekView = ({ week, groupedEntries, dayMetadata, onOpenDay, analyzeWeek, o
                             {saveState === 'saved' && (
                                 <span className="flex items-center gap-1.5 text-emerald-700">
                                     <Check size={14} />
-                                    Saved to {dayTitle(saved?.entry?.groupId || week.days[week.days.length - 1], dayMetadata)}
+                                    Saved to this week
                                 </span>
                             )}
                             {saveState === 'failed' && (

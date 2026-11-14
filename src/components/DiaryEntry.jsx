@@ -5,7 +5,7 @@ import GeminiPanel from './GeminiPanel';
 import FloatingGeminiMenu from './FloatingGeminiMenu';
 import SimpleMarkdownRenderer from './SimpleMarkdownRenderer';
 
-const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, isAnalysis = false, systemPrompt, editPrompt, onAddTodos, calendarContext }) => {
+const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = true, isAnalysis = false, byClaude = false, systemPrompt, editPrompt, onAddTodos, calendarContext }) => {
     const [content, setContent] = useState(initialContent || '');
     const [isSaving, setIsSaving] = useState(false);
     const [geminiState, setGeminiState] = useState({ loading: false, suggestion: null });
@@ -377,6 +377,7 @@ const DiaryEntry = ({ date, initialContent, onSave, onDelete, showDateHeader = t
                             </span>
                         )}
                         <span>{new Date(date).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</span>
+                        {byClaude && <span className="font-normal text-slate-400">· by Claude</span>}
                     </div>
                 )}
                 <div className="flex items-center gap-1.5 sm:gap-3">
