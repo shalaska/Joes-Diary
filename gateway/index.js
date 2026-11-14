@@ -7,8 +7,10 @@
 import { initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { FieldValue, getFirestore } from 'firebase-admin/firestore';
+import { getMessaging } from 'firebase-admin/messaging';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { HttpsError, onCall, onRequest } from 'firebase-functions/v2/https';
+import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { logger } from 'firebase-functions';
 import { createAskHandler } from './src/agent.js';
 import { createConnectorHandler, sendWebResponse, toWebRequest } from './src/connector.js';
@@ -16,6 +18,7 @@ import { createGeminiClient, createGeminiToolClient } from './src/gemini.js';
 import { createHandler, GatewayError } from './src/handler.js';
 import { createMcpHandler } from './src/mcp.js';
 import { createOAuth, fetchClientMetadata } from './src/oauth.js';
+import { checkReminders, createReminderStore, createSender, sendTestReminder } from './src/reminders.js';
 import { createOAuthStore, createUserStore } from './src/store.js';
 
 initializeApp();
@@ -160,4 +163,35 @@ export const mcp = onRequest({
         logger.error('mcp_unexpected', { name: error?.name });
         res.status(500).set('Cache-Control', 'no-store').json({ error: 'server_error' });
     }
+});
+
+// Writing reminders: at 8pm London time, a push notification to users who switched them on in
+// Settings and have not written for their chosen number of days. No Gemini, no diary text.
+export const writingReminder = onSchedule({
+    schedule: '0 20 * * *',
+    timeZone: 'Europe/London',
+    region: 'europe-west1',
+    maxInstances: 1,
+    timeoutSeconds: 120,
+    memory: '256MiB',
+}, async () => {
+    await checkReminders({
+        store: createReminderStore(getFirestore(), FieldValue),
+        send: createSender(getMessaging()),
+        log: (entry) => logger.info('reminders', entry),
+    });
+});
+
+// "Send a test" in Settings.
+export const reminderTest = onCall({
+    region: 'europe-west1',
+    maxInstances: 1,
+    cors: ['https://joesdiary-d8211.web.app', 'https://joesdiary-d8211.firebaseapp.com', /^https:\/\/joesdiary-d8211--pr-\d+-[a-z0-9]+\.web\.app$/, /^http:\/\/localhost:\d+$/],
+}, async (request) => {
+    const uid = request.auth?.uid;
+    if (!uid) throw new HttpsError('unauthenticated', 'Sign in first.');
+    if (!(await isAllowedUser(uid))) throw new HttpsError('permission-denied', 'This account is not allowed to use the diary.');
+    const result = await sendTestReminder({ store: createReminderStore(getFirestore(), FieldValue), send: createSender(getMessaging()), uid });
+    logger.info('reminders', { feature: 'reminders', test: true, sent: result.sent });
+    return result;
 });

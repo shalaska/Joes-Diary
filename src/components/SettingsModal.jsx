@@ -4,6 +4,7 @@ import NotionSettings from './NotionSettings';
 import DataExportSettings from './DataExportSettings';
 import SiriShortcutSettings from './SiriShortcutSettings';
 import ConnectedAppsSettings from './ConnectedAppsSettings';
+import WritingReminderSettings from './WritingReminderSettings';
 
 const SettingsModal = ({
     onClose,
@@ -163,6 +164,8 @@ const SettingsModal = ({
                     <DataExportSettings entries={entries} dayMetadata={dayMetadata} />
 
                     <SiriShortcutSettings />
+
+                    <WritingReminderSettings />
 
                     <ConnectedAppsSettings onRestoreTodo={onRestoreTodo} />
 
