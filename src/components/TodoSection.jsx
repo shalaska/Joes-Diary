@@ -19,6 +19,9 @@ import { CSS } from '@dnd-kit/utilities';
 import { Check, Trash2, ChevronDown, ChevronRight, ListTodo, Calendar, Plus } from 'lucide-react';
 
 // --- Sortable Item Component ---
+// Things Claude added through the connector carry source: 'claude'.
+const ByClaude = () => <span className="ml-1.5 text-[10px] font-normal text-slate-400 whitespace-nowrap">· by Claude</span>;
+
 function SortableTodoItem({ todo, onToggle, onDelete, onSchedule }) {
     const {
         attributes,
@@ -52,7 +55,7 @@ function SortableTodoItem({ todo, onToggle, onDelete, onSchedule }) {
                 className="mt-1 w-5 h-5 border-2 border-slate-300 rounded hover:border-indigo-500 transition-colors flex-shrink-0"
             />
             <span className="text-sm text-slate-700 leading-relaxed break-words flex-1 font-medium">
-                {todo.text}
+                {todo.text}{todo.source === 'claude' && <ByClaude />}
             </span>
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                 {onSchedule && (
@@ -241,7 +244,7 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onReorder, 
                                         <Check size={12} className="text-white" />
                                     </button>
                                     <span className="text-sm text-slate-500 line-through leading-relaxed flex-1">
-                                        {todo.text}
+                                        {todo.text}{todo.source === 'claude' && <ByClaude />}
                                     </span>
                                     <button
                                         onClick={() => onDelete(todo.id)}
@@ -288,7 +291,7 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onReorder, 
                                 className="mt-0.5 w-4 h-4 border-2 border-slate-300 rounded hover:border-indigo-500 transition-colors flex-shrink-0"
                             />
                             <span className="text-sm text-slate-700 leading-tight break-words flex-1">
-                                {todo.text}
+                                {todo.text}{todo.source === 'claude' && <ByClaude />}
                             </span>
                             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 {onSchedule && (
@@ -315,7 +318,7 @@ const TodoSection = ({ todos, onToggle, onDelete, onSchedule, onAdd, onReorder, 
                                 <div key={todo.id} className="group flex items-start gap-2 p-1">
                                     <Check size={12} className="text-slate-400 mt-1" />
                                     <span className="text-xs text-slate-400 line-through flex-1">
-                                        {todo.text}
+                                        {todo.text}{todo.source === 'claude' && <ByClaude />}
                                     </span>
                                 </div>
                             ))}

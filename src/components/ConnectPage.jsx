@@ -34,6 +34,7 @@ export function ConnectConsent({ params, navigate = goTo }) {
     const { currentUser, logout } = useAuth();
     const [check, setCheck] = useState(null);
     const [suggest, setSuggest] = useState(false);
+    const [change, setChange] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState('');
 
@@ -66,7 +67,7 @@ export function ConnectConsent({ params, navigate = goTo }) {
         setError('');
         try {
             const idToken = await currentUser.getIdToken();
-            const { data } = await postJson('/oauth/authorize', { params, idToken, approved, suggest: approved && suggest });
+            const { data } = await postJson('/oauth/authorize', { params, idToken, approved, suggest: approved && suggest, change: approved && change });
             if (data?.redirect) {
                 navigate(data.redirect);
                 return;
@@ -96,9 +97,15 @@ export function ConnectConsent({ params, navigate = goTo }) {
                     </span>
                     <span>Also suggest to-dos and notes. Each suggestion waits in the diary until you tap Add.</span>
                 </label>
+                <label className="flex items-start gap-2 text-slate-700 cursor-pointer">
+                    <span className="w-[18px] shrink-0 flex justify-center pt-0.5">
+                        <input type="checkbox" className="w-4 h-4 accent-indigo-600" checked={change} onChange={(e) => setChange(e.target.checked)} />
+                    </span>
+                    <span>Also add, tick off and delete to-dos, and save week reviews, without asking. What it adds is marked “by Claude”.</span>
+                </label>
                 <div className="flex gap-2 text-slate-500">
                     <X size={18} className="text-slate-400 shrink-0 mt-0.5" />
-                    <span>It can never edit, delete or tick off anything, see your calendar, or send anything.</span>
+                    <span>It can never edit or delete what you wrote in the diary, see your calendar, or send anything.</span>
                 </div>
                 <div className="flex gap-2 text-slate-500">
                     <ShieldCheck size={18} className="text-slate-400 shrink-0 mt-0.5" />

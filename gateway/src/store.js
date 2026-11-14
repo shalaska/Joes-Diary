@@ -5,13 +5,36 @@ export const createUserStore = (db, uid, now = () => Date.now()) => {
     const base = `users/${uid}`;
     return {
         entries: async () => (await db.collection(`${base}/entries`).get()).docs.map(d => d.data()),
-        todos: async () => (await db.collection(`${base}/todos`).get()).docs.map(d => d.data()),
+        todos: async () => (await db.collection(`${base}/todos`).get()).docs.map(d => ({ ...d.data(), id: d.id })),
         saveProposals: async (proposals) => {
             const batch = db.batch();
             const refs = proposals.map(() => db.collection(`${base}/agentProposals`).doc());
             refs.forEach((ref, i) => batch.set(ref, proposals[i]));
             await batch.commit();
             return refs.map(ref => ref.id);
+        },
+        // The change permission's writes: to-dos, and new week-review entries. The app keys
+        // entries by their ISO date and to-dos carry their own id, like the app writes them.
+        addTodo: async (todo) => {
+            const ref = db.collection(`${base}/todos`).doc();
+            await ref.set({ ...todo, id: ref.id });
+            return ref.id;
+        },
+        updateTodo: async (id, fields) => { await db.doc(`${base}/todos/${id}`).update(fields); },
+        deleteTodo: async (id) => { await db.doc(`${base}/todos/${id}`).delete(); },
+        // Counts Claude's changes per UTC day in a server-only counter; false once at the limit.
+        takeChange: (limit) => {
+            const ref = db.doc(`gatewayUsage/mcpchanges_${uid}_${new Date(now()).toISOString().slice(0, 10)}`);
+            return db.runTransaction(async (tx) => {
+                const count = (await tx.get(ref)).get('count') || 0;
+                if (count >= limit) return false;
+                tx.set(ref, { count: count + 1 }, { merge: true });
+                return true;
+            });
+        },
+        saveEntry: async (entry) => {
+            await db.doc(`${base}/entries/${entry.date}`).create(entry);
+            return entry.date;
         },
         // Suggestions still waiting for the user: pending and not past their expiry.
         pendingProposalCount: async () => {

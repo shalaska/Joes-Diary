@@ -38,6 +38,7 @@ describe('WeekView', () => {
         expect(html).toContain('Saved to Wednesday 11 November');
         expect(html).toContain('Analyze again');
         expect(html).not.toContain('Analyze my week');
+        expect(html).not.toContain('Written by Claude');
     });
 });
 
@@ -51,5 +52,13 @@ describe('Sidebar week mode', () => {
         expect(html).toContain('9–15 Nov 2026');
         expect(html).toContain('2 days · 2 notes');
         expect(html).toContain('aria-pressed="true"');
+    });
+
+    it('marks a review Claude saved through the connector', () => {
+        const week = groupWeeks(grouped)[0];
+        const fromClaude = { ...weekReviewEntry(week, 'Claude\'s view of the week.', '2026-11-11T22:00:00.000Z'), source: 'claude' };
+        const withReview = { ...grouped, 'Wed Nov 11 2026': [...grouped['Wed Nov 11 2026'], fromClaude] };
+        const html = render(<WeekView week={week} groupedEntries={withReview} dayMetadata={{}} onOpenDay={() => {}} analyzeWeek={async () => ''} onSaveReview={async () => {}} />);
+        expect(html).toContain('Written by Claude');
     });
 });

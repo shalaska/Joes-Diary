@@ -83,6 +83,9 @@ const WeekView = ({ week, groupedEntries, dayMetadata, onOpenDay, analyzeWeek, o
                 {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
                 {review && !loading && (
                     <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-5">
+                        {saved?.entry?.source === 'claude' && review === saved.review && (
+                            <p className="text-[11px] text-slate-400 mb-2">Written by Claude</p>
+                        )}
                         <div className="text-slate-800 text-sm leading-relaxed">
                             <SimpleMarkdownRenderer content={review} />
                         </div>

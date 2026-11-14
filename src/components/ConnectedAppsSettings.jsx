@@ -8,7 +8,7 @@ import { useAuth } from '../contexts/authContext';
 
 export const CONNECTOR_URL = 'https://joesdiary-d8211.web.app/mcp';
 
-const SCOPE_LABELS = { 'diary.read': 'Read', 'diary.suggest': 'Suggest' };
+const SCOPE_LABELS = { 'diary.read': 'Read', 'diary.suggest': 'Suggest', 'diary.change': 'Change to-dos' };
 
 const formatDay = (ms) => (ms ? new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '');
 
