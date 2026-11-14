@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createMcpTools, MAX_CHANGES_PER_DAY, mondayOf, todayIn, weekLabel } from './mcpTools.js';
+import { createMcpTools, MAX_CHANGES_PER_DAY, mondayOf, todayIn, TRASH_DAYS, weekLabel } from './mcpTools.js';
 
 // Saturday 14 Nov 2026, 07:00 in London.
 const NOW = Date.parse('2026-11-14T07:00:00.000Z');
@@ -21,6 +21,7 @@ const makeStore = (overrides = {}) => {
         ],
         changes: 0,
         saved: [],
+        trash: [],
         ...overrides,
     };
     s.store = {
@@ -28,7 +29,14 @@ const makeStore = (overrides = {}) => {
         todos: async () => s.todoList,
         addTodo: async (todo) => { s.todoList.push({ ...todo, id: 'new1' }); return 'new1'; },
         updateTodo: async (id, fields) => { s.todoList = s.todoList.map(t => (t.id === id ? { ...t, ...fields } : t)); },
-        deleteTodo: async (id) => { s.todoList = s.todoList.filter(t => t.id !== id); },
+        trashTodo: async (todo, meta) => { s.todoList = s.todoList.filter(t => t.id !== todo.id); s.trash.push({ id: todo.id, todo, ...meta }); },
+        trashedTodos: async () => s.trash,
+        restoreTodo: async (id) => {
+            const item = s.trash.find(t => t.id === id);
+            s.trash = s.trash.filter(t => t.id !== id);
+            s.todoList.push(item.todo);
+            return item.todo;
+        },
         saveEntry: async (entry) => { s.saved.push(entry); s.entryList.push(entry); return entry.date; },
         takeChange: async (limit) => (s.changes < limit ? (s.changes += 1, true) : false),
     };
@@ -120,8 +128,24 @@ describe('changing to-dos', () => {
         expect(s.todoList.find(x => x.id === 't1').completed).toBe(false);
         expect(await t.change.delete_todo.run({ id: 't3' })).toMatchObject({ deleted: true });
         expect(s.todoList.map(x => x.id)).toEqual(['t1', 't2']);
+        expect(s.trash).toEqual([{ id: 't3', todo: expect.objectContaining({ text: 'Old thing' }), deletedAt: '2026-11-14T07:00:00.000Z', deletedBy: 'claude', expiresAt: NOW + TRASH_DAYS * 864e5 }]);
         expect((await t.change.delete_todo.run({ id: 'nope' })).error).toMatch(/list_todos/);
         expect(s.changes).toBe(3);
+    });
+
+    it(`lets a deleted to-do be listed and restored for ${TRASH_DAYS} days, not after`, async () => {
+        const s = makeStore();
+        await tools(s).change.delete_todo.run({ id: 't1' });
+        const listed = await tools(s).read.list_todos.run({ status: 'deleted' });
+        expect(listed.todos).toEqual([{ id: 't1', text: '<todo>Book dentist</todo>', deletedAt: '2026-11-14T07:00:00.000Z' }]);
+        expect(await tools(s).change.restore_todo.run({ id: 't1' })).toEqual({ restored: true, text: '<todo>Book dentist</todo>' });
+        expect(s.todoList.map(x => x.id)).toContain('t1');
+        expect(s.trash).toEqual([]);
+
+        await tools(s).change.delete_todo.run({ id: 't1' });
+        const later = tools(s, NOW + (TRASH_DAYS + 1) * 864e5);
+        expect((await later.read.list_todos.run({ status: 'deleted' })).todos).toEqual([]);
+        expect((await later.change.restore_todo.run({ id: 't1' })).error).toMatch(/deleted/);
     });
 
     it(`stops after ${MAX_CHANGES_PER_DAY} changes in a day`, async () => {

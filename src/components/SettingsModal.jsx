@@ -15,7 +15,8 @@ const SettingsModal = ({
     initialIcsProxyUrl,
     onNotionImport,
     entries,
-    dayMetadata
+    dayMetadata,
+    onRestoreTodo,
 }) => {
     const [systemPrompt, setSystemPrompt] = useState(initialSystemPrompt || '');
     const [editPrompt, setEditPrompt] = useState(initialEditPrompt || '');
@@ -163,7 +164,7 @@ const SettingsModal = ({
 
                     <SiriShortcutSettings />
 
-                    <ConnectedAppsSettings />
+                    <ConnectedAppsSettings onRestoreTodo={onRestoreTodo} />
 
                 </div>
 

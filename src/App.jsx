@@ -1105,6 +1105,7 @@ function DiaryApp() {
           onNotionImport={handleNotionImport}
           entries={entries}
           dayMetadata={dayMetadata}
+          onRestoreTodo={(todo) => setTodos(prev => (prev.some(t => t.id === todo.id) ? prev : [...prev, todo]))}
         />
       )}
 
