@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import DiaryEntry from './components/DiaryEntry';
 import Sidebar from './components/Sidebar';
 import TodoSection from './components/TodoSection';
@@ -17,7 +17,9 @@ import ScheduleTodoModal from './components/ScheduleTodoModal';
 import { AuthProvider } from './contexts/AuthContext';
 import { useAuth } from './contexts/authContext';
 import { Menu, Book, BookOpen, Plus, Sparkles, ListTodo, CheckCircle2, X } from 'lucide-react';
-import SettingsModal from './components/SettingsModal';
+// Settings pulls in the Notion import and the export (zip and CSV libraries). Few visits
+// open it, so it loads only when it is opened.
+const SettingsModal = lazy(() => import('./components/SettingsModal'));
 
 import { db as localDB } from './db';
 import { firestoreService } from './firestoreService';
@@ -242,10 +244,24 @@ function DiaryApp() {
           localStorage.setItem(migrationKey, 'true');
         }
 
-        // 2. Fetch from Firestore
-        let cloudEntries = await firestoreService.getEntries(currentUser.uid);
-        let cloudTrash = await firestoreService.getTrash(currentUser.uid);
-        let cloudMetadata = await firestoreService.getDayMetadata(currentUser.uid);
+        // 2. Fetch everything from Firestore at once. These reads don't depend on each
+        // other, so running them in parallel costs one round trip instead of seven.
+        // Anchors, goals and suggestions are optional: if they fail, the diary still opens.
+        const optional = (promise, label) => promise.catch(error => {
+          console.error(`Error loading ${label}`, error);
+          return null;
+        });
+        const [entriesRead, cloudTrash, cloudMetadata, cloudTodos, cloudAnchors, cloudGoals, cloudProposals, userSettings] = await Promise.all([
+          firestoreService.getEntries(currentUser.uid),
+          firestoreService.getTrash(currentUser.uid),
+          firestoreService.getDayMetadata(currentUser.uid),
+          firestoreService.getTodos(currentUser.uid),
+          optional(firestoreService.listItems(currentUser.uid, 'dailyAnchors'), 'anchors'),
+          optional(firestoreService.listItems(currentUser.uid, 'goals'), 'goals'),
+          optional(firestoreService.listItems(currentUser.uid, 'agentProposals'), 'suggestions'),
+          firestoreService.getUserSettings(currentUser.uid),
+        ]);
+        let cloudEntries = entriesRead;
 
         const metadataMap = {};
         cloudMetadata.forEach(m => {
@@ -261,33 +277,20 @@ function DiaryApp() {
         setEntries(cloudEntries);
         setTrash(cloudTrash);
         setDayMetadata(metadataMap);
-
-        const cloudTodos = await firestoreService.getTodos(currentUser.uid);
         setTodos(cloudTodos);
+        if (cloudAnchors) setAnchors(cloudAnchors);
+        if (cloudGoals) setGoals(cloudGoals);
 
-        try {
-          const [cloudAnchors, cloudGoals] = await Promise.all([
-            firestoreService.listItems(currentUser.uid, 'dailyAnchors'),
-            firestoreService.listItems(currentUser.uid, 'goals'),
-          ]);
-          setAnchors(cloudAnchors);
-          setGoals(cloudGoals);
-        } catch (error) {
-          console.error('Error loading anchors and goals', error);
-        }
-
-        try {
-          // Suggestions from "Ask my diary" that are still waiting. Expired ones are removed.
-          const cloudProposals = await firestoreService.listItems(currentUser.uid, 'agentProposals');
+        if (cloudProposals) {
+          // Suggestions from "Ask my diary" that are still waiting. Expired ones are removed
+          // in the background: the diary doesn't wait for the deletes.
           const stale = staleProposals(cloudProposals);
           setProposals(cloudProposals.filter(p => !stale.includes(p)));
-          await Promise.all(stale.map(p => firestoreService.deleteItem(currentUser.uid, 'agentProposals', p.id)));
-        } catch (error) {
-          console.error('Error loading suggestions', error);
+          Promise.all(stale.map(p => firestoreService.deleteItem(currentUser.uid, 'agentProposals', p.id)))
+            .catch(error => console.error('Error removing expired suggestions', error));
         }
 
-        // 3. Load User Settings
-        const userSettings = await firestoreService.getUserSettings(currentUser.uid);
+        // 3. Apply user settings
         if (userSettings) {
           localStorage.removeItem('gemini_api_key');
           if ('apiKey' in userSettings) {
@@ -777,17 +780,19 @@ function DiaryApp() {
         </div>
       )}
       {/* Mobile Header */}
-      <div className="md:hidden bg-white border-b border-slate-200 p-4 flex items-center justify-between sticky top-0 z-20 flex-shrink-0">
+      <div className="md:hidden bg-white border-b border-slate-200 p-4 flex items-center gap-2 sticky top-0 z-20 flex-shrink-0">
+        {/* On the left, on the same side the menu slides in from. */}
+        <button
+          onClick={() => setIsMobileMenuOpen(true)}
+          className="p-2 -ml-2 text-slate-600 hover:bg-slate-100 rounded-lg"
+          aria-label="Open menu"
+        >
+          <Menu size={24} />
+        </button>
         <div className="flex items-center gap-2 text-slate-800 font-bold text-lg">
           <Book className="text-indigo-600" size={24} />
           <span>JoesDiary</span>
         </div>
-        <button
-          onClick={() => setIsMobileMenuOpen(true)}
-          className="p-2 text-slate-600 hover:bg-slate-100 rounded-lg"
-        >
-          <Menu size={24} />
-        </button>
       </div>
 
       <Sidebar
@@ -1065,8 +1070,8 @@ function DiaryApp() {
                   </div>
                 </div>
               ) : (
-                <div className="text-center text-slate-400 mt-20">
-                  <p>Select a day or create a new entry.</p>
+                <div className="text-center text-slate-400 mt-20" role="status">
+                  <p>{isLoading ? 'Opening your diary…' : 'Select a day or create a new entry.'}</p>
                 </div>
               )
             )}
@@ -1097,19 +1102,21 @@ function DiaryApp() {
       </main>
 
       {isSettingsOpen && (
-        <SettingsModal
-          onClose={() => setIsSettingsOpen(false)}
-          onSave={handleSaveSettings}
-          initialSystemPrompt={systemPrompt}
-          initialEditPrompt={editPrompt}
-          initialGoogleClientId={googleClientId}
-          initialGoogleApiKey={googleApiKey}
-          initialIcsProxyUrl={icsProxyUrl}
-          onNotionImport={handleNotionImport}
-          entries={entries}
-          dayMetadata={dayMetadata}
-          onRestoreTodo={(todo) => setTodos(prev => (prev.some(t => t.id === todo.id) ? prev : [...prev, todo]))}
-        />
+        <Suspense fallback={null}>
+          <SettingsModal
+            onClose={() => setIsSettingsOpen(false)}
+            onSave={handleSaveSettings}
+            initialSystemPrompt={systemPrompt}
+            initialEditPrompt={editPrompt}
+            initialGoogleClientId={googleClientId}
+            initialGoogleApiKey={googleApiKey}
+            initialIcsProxyUrl={icsProxyUrl}
+            onNotionImport={handleNotionImport}
+            entries={entries}
+            dayMetadata={dayMetadata}
+            onRestoreTodo={(todo) => setTodos(prev => (prev.some(t => t.id === todo.id) ? prev : [...prev, todo]))}
+          />
+        </Suspense>
       )}
 
       <ScheduleTodoModal

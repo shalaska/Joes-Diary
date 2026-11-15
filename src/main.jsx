@@ -11,6 +11,13 @@ const page = window.location.pathname === '/connect'
   ? <AuthProvider><ConnectPage /></AuthProvider>
   : <App />
 
+// After a deploy, a tab opened earlier may ask for a code chunk that no longer exists
+// (for example when Settings is first opened). Reloading picks up the new version.
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault()
+  window.location.reload()
+})
+
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     {page}

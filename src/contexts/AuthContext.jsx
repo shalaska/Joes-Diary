@@ -37,7 +37,11 @@ export function AuthProvider({ children }) {
 
     return (
         <AuthContext.Provider value={value}>
-            {!loading && children}
+            {loading ? (
+                // Same text as the placeholder in index.html, so the page doesn't flash
+                // blank while Firebase restores the session.
+                <div className="min-h-screen flex items-center justify-center text-slate-400" role="status">Loading…</div>
+            ) : children}
         </AuthContext.Provider>
     );
 }
