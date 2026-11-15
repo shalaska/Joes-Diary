@@ -2,6 +2,7 @@ import { db } from './firebase';
 import {
     collection,
     doc,
+    getDoc,
     getDocs,
     setDoc,
     deleteDoc,
@@ -135,7 +136,7 @@ export const firestoreService = {
     async getUserSettings(userId) {
         const ref = doc(db, 'users', userId, 'settings', 'general');
         // We'll just use a single document 'general' for now
-        const docSnap = await import('firebase/firestore').then(mod => mod.getDoc(ref));
+        const docSnap = await getDoc(ref);
 
         if (docSnap.exists()) {
             return docSnap.data();

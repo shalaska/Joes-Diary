@@ -5,9 +5,13 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>JoesDiary</title>
+    <!-- Open the connections the first load needs while the app code downloads. -->
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin />
+    <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin />
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Shown until the app starts, so the first paint isn't a blank page. -->
+    <div id="root"><div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#94a3b8;font-family:system-ui,sans-serif" role="status">Loading…</div></div>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://apis.google.com/js/api.js" async defer></script>
     <script type="module" src="/src/main.jsx"></script>
