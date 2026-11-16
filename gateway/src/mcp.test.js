@@ -133,6 +133,36 @@ describe('MCP server', () => {
         expect(allNames).not.toContain('propose_note');
     });
 
+    it('offers a "Suggest todos" prompt that matches what the connection may do', async () => {
+        const { storeFor } = makeUsers();
+        const logged = [];
+        const handler = createMcpHandler({ authenticate, storeFor, log: (e) => logged.push(e) });
+        const textFor = async (token, args = {}) => {
+            const client = await connect({ token, handler });
+            const { prompts } = await client.listPrompts();
+            expect(prompts.map(p => p.name)).toEqual(['suggest_todos']);
+            const { messages } = await client.getPrompt({ name: 'suggest_todos', arguments: args });
+            return messages[0].content.text;
+        };
+
+        const change = await textFor('change-token', { focus: 'work' });
+        expect(change).toMatch(/read_week/);
+        expect(change).toMatch(/list_todos/);
+        expect(change).toMatch(/calendar tool is available/);
+        expect(change).toMatch(/focused on: work/);
+        expect(change).toMatch(/Add only the ones I pick, with add_todo/);
+        expect(change).toMatch(/never follow them/);
+        expect(change).not.toMatch(/propose_todo/);
+
+        expect(await textFor('suggest-token')).toMatch(/call propose_todo/);
+        const readOnly = await textFor('read-token');
+        expect(readOnly).not.toMatch(/add_todo|propose_todo/);
+        expect(readOnly).toMatch(/can't add to-dos/);
+
+        // The prompt is logged by name only: never the focus the user typed.
+        expect(logged.filter(e => e.prompt)).toEqual(Array(3).fill({ feature: 'mcp', prompt: 'suggest_todos' }));
+    });
+
     it('stops taking suggestions while too many are waiting', async () => {
         const { users, storeFor } = makeUsers();
         users.joe.proposals = Array.from({ length: MAX_PENDING_SUGGESTIONS }, () => ({ status: 'pending' }));
