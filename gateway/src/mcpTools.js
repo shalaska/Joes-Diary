@@ -1,7 +1,8 @@
 // Tools only the MCP server offers, on top of the Ask agent's tools. The outside app's own model
 // does the thinking (a week's analysis, a nudge to write), so none of these call Gemini.
 //
-// - list_todos (with ids), read_week, diary_status: read permission.
+// - list_todos (with ids), list_goals, read_week, diary_status: read permission. Goals are
+//   read-only here: Claude can't add, change or tick off a goal.
 // - add_note, add_todo, complete_todo, delete_todo, restore_todo, save_week_review: the separate
 //   "change" permission. delete_todo moves the to-do to users/{uid}/todoTrash for TRASH_DAYS, where
 //   the app can restore it. add_note only adds a new note to a day. No tool edits or deletes what
@@ -15,6 +16,8 @@ export const MAX_CHANGES_PER_DAY = 30;
 export const TRASH_DAYS = 7;
 const WEEK_CHARS = 60000;
 const TODO_CHARS = 300;
+const GOAL_CHARS = 1000;
+const MAX_GOALS = 50;
 const REVIEW_CHARS = 8000;
 const NOTE_CHARS = 4000;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -113,6 +116,28 @@ export const createMcpTools = ({ store, now = () => Date.now(), timeZone = TIME_
                         done: Boolean(t.completed),
                         ...(t.source === 'claude' ? { addedBy: 'claude' } : {}),
                     })),
+                };
+            },
+        },
+        list_goals: {
+            description: 'The user\'s goals, each with its timeframe (for example "This month") and notes. Use it to connect to-dos, plans or a week\'s review to what the user is aiming for. Each goal comes back in <goal> tags. Goals are read-only: no tool changes them.',
+            parameters: {
+                type: 'OBJECT',
+                properties: { status: { type: 'STRING', enum: ['open', 'achieved', 'all'], description: 'Default open' } },
+            },
+            run: async ({ status = 'open' }) => {
+                const goals = (await store.goals())
+                    .filter(g => status === 'all' || (status === 'achieved' ? g.completed : !g.completed))
+                    .slice(0, MAX_GOALS);
+                return {
+                    goals: goals.map(g => {
+                        const text = [stripMarkup(g.title), stripMarkup(g.notes)].filter(Boolean).join('\n').slice(0, GOAL_CHARS);
+                        return {
+                            goal: `<goal>\n${text}\n</goal>`,
+                            timeframe: stripMarkup(g.timeframe).slice(0, 50) || null,
+                            achieved: Boolean(g.completed),
+                        };
+                    }),
                 };
             },
         },
