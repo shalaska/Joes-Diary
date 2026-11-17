@@ -6,6 +6,7 @@ export const createUserStore = (db, uid, now = () => Date.now()) => {
     return {
         entries: async () => (await db.collection(`${base}/entries`).get()).docs.map(d => d.data()),
         todos: async () => (await db.collection(`${base}/todos`).get()).docs.map(d => ({ ...d.data(), id: d.id })),
+        goals: async () => (await db.collection(`${base}/goals`).get()).docs.map(d => ({ ...d.data(), id: d.id })),
         saveProposals: async (proposals) => {
             const batch = db.batch();
             const refs = proposals.map(() => db.collection(`${base}/agentProposals`).doc());
